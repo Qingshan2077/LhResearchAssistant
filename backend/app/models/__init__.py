@@ -255,6 +255,11 @@ class RebuttalRequest(BaseModel):
 
 
 # ── Writing Quality Check ─────────────────────────
+class CreateSocraticRequest(BaseModel):
+    project_id: str = "default"
+    initial_message: str = ""
+
+
 class WritingQualityCheckRequest(BaseModel):
     writing_project_id: str
     text: str = ""
