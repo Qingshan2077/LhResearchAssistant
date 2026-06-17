@@ -1,0 +1,50 @@
+# Python 
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.venv*/
+venv/
+venv*/
+uv.lock
+
+# Node 
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Rust / Tauri 
+frontend/src-tauri/target/
+frontend/src-tauri/debug/
+
+# 运行时数据（本地缓存 + 数据库，不上传）
+backend/data/
+*.db
+*.sqlite
+chroma_db/
+
+#  环境配置
+.env
+.env.local
+*.env.local
+
+# IDE 
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.jbeval
+
+# OS 
+.DS_Store
+Thumbs.db
+
+#
+docs/
+*.txt
+
+# 忽略所有 .md 文件
+*.md
+# 但不忽略 README.md 文件
+!README.md
