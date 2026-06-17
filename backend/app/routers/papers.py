@@ -338,7 +338,7 @@ async def get_citation_graph_endpoint(paper_id: str, db: Session = Depends(get_d
     try:
         graph = await fetch_citation_graph(s2_id)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Semantic Scholar request failed: {exc}") from exc
+        return {"error": f"Semantic Scholar request failed: {exc}"}
 
     if graph.get("error"):
         return graph

@@ -2,12 +2,17 @@
 
 import asyncio
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 
 SEMANTIC_SCHOLAR_BASE = "https://api.semanticscholar.org/graph/v1"
 PAPER_FIELDS = "paperId,title,year,authors,venue,externalIds,citationCount,url"
+
+
+def _paper_path_id(paper_id: str) -> str:
+    return quote(str(paper_id).strip(), safe="")
 
 
 def _authors(item: dict[str, Any]) -> list[str]:
@@ -33,7 +38,7 @@ def _paper_item(item: dict[str, Any], group: str, is_seed: bool = False) -> dict
 
 async def _get_paper(client: httpx.AsyncClient, paper_id: str) -> dict[str, Any] | None:
     resp = await client.get(
-        f"{SEMANTIC_SCHOLAR_BASE}/paper/{paper_id}",
+        f"{SEMANTIC_SCHOLAR_BASE}/paper/{_paper_path_id(paper_id)}",
         params={"fields": PAPER_FIELDS},
     )
     if resp.status_code == 404:
@@ -49,7 +54,7 @@ async def _get_relation_page(
     item_key: str,
 ) -> list[dict[str, Any]]:
     resp = await client.get(
-        f"{SEMANTIC_SCHOLAR_BASE}/paper/{paper_id}/{relation}",
+        f"{SEMANTIC_SCHOLAR_BASE}/paper/{_paper_path_id(paper_id)}/{relation}",
         params={"limit": 50, "fields": PAPER_FIELDS},
     )
     if resp.status_code == 404:
@@ -73,15 +78,24 @@ def _dedupe(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 async def get_citation_graph(paper_id: str) -> dict[str, Any]:
     """Return seed paper, references, citations and ReactFlow-ready graph data."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        seed_raw = await _get_paper(client, paper_id)
-        if not seed_raw:
-            return {"error": "Paper not found on Semantic Scholar."}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            seed_raw = await _get_paper(client, paper_id)
+            if not seed_raw:
+                return {"error": "Paper not found on Semantic Scholar."}
 
-        await asyncio.sleep(1)
-        reference_raw = await _get_relation_page(client, paper_id, "references", "citedPaper")
-        await asyncio.sleep(1)
-        citation_raw = await _get_relation_page(client, paper_id, "citations", "citingPaper")
+            canonical_id = seed_raw.get("paperId") or paper_id
+            await asyncio.sleep(1)
+            reference_raw = await _get_relation_page(client, canonical_id, "references", "citedPaper")
+            await asyncio.sleep(1)
+            citation_raw = await _get_relation_page(client, canonical_id, "citations", "citingPaper")
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        if status_code == 429:
+            return {"error": "Semantic Scholar rate limit reached. Please retry later."}
+        return {"error": f"Semantic Scholar returned HTTP {status_code}."}
+    except httpx.RequestError as exc:
+        return {"error": f"Cannot reach Semantic Scholar: {exc}"}
 
     seed = _paper_item(seed_raw, "seed", True)
     references = _dedupe([_paper_item(item, "reference") for item in reference_raw])

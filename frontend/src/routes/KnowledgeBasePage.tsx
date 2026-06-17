@@ -18,6 +18,11 @@ export default function KnowledgeBasePage() {
   useEffect(() => {
     if (!graphRef.current || !graphData || graphData.nodes.length === 0) return;
 
+    const isDark = document.documentElement.classList.contains("dark");
+    const nodeTextColor = isDark ? "#e5e7eb" : "#1f2937";
+    const nodeTextOutline = isDark ? "#020617" : "#ffffff";
+    const edgeLabelBackground = isDark ? "#020617" : "#ffffff";
+
     const cy = cytoscape({
       container: graphRef.current,
       elements: [
@@ -47,9 +52,10 @@ export default function KnowledgeBasePage() {
           style: {
             label: "data(label)",
             "font-size": 10,
-            color: "hsl(210 40% 98%)",
-            "text-outline-color": "hsl(222.2 84% 4.9%)",
-            "text-outline-width": 2,
+            "font-weight": 400,
+            color: nodeTextColor,
+            "text-outline-color": nodeTextOutline,
+            "text-outline-width": 1.2,
             "text-wrap": "wrap",
             "text-max-width": 140,
           },
@@ -126,8 +132,10 @@ export default function KnowledgeBasePage() {
       const edge = event.target;
       edge.style("label", edge.data("label") || edge.data("type"));
       edge.style("font-size", 9);
-      edge.style("text-background-color", "hsl(222.2 84% 4.9%)");
-      edge.style("text-background-opacity", 0.85);
+      edge.style("font-weight", 400);
+      edge.style("color", nodeTextColor);
+      edge.style("text-background-color", edgeLabelBackground);
+      edge.style("text-background-opacity", 0.9);
       edge.style("text-background-padding", 2);
     });
     cy.on("mouseout", "edge", (event) => {

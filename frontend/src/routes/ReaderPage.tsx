@@ -82,6 +82,8 @@ export default function ReaderPage() {
 
   useEffect(() => {
     if (!id) return;
+    setCitationGraph(null);
+    setGraphError("");
     api
       .get(`papers/${id}`)
       .json<Paper>()
@@ -109,10 +111,10 @@ export default function ReaderPage() {
   }, [id, fetchMindMap]);
 
   useEffect(() => {
-    if (activeTab === "citation_graph" && !citationGraph && !graphLoading) {
+    if (activeTab === "citation_graph" && !citationGraph && !graphLoading && !graphError) {
       fetchCitationGraph();
     }
-  }, [activeTab, citationGraph, graphLoading]);
+  }, [activeTab, citationGraph, graphLoading, graphError]);
 
   const handleParse = async () => {
     if (!id) return;
