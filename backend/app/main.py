@@ -7,12 +7,14 @@ from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import engine, Base
+from app.database.sqlite import ensure_runtime_schema
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时建表，关闭时清理"""
     Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema(engine)
     yield
 
 
@@ -33,7 +35,7 @@ app.add_middleware(
 
 # ── 路由注册 ──────────────────────────────────────────
 # 每个路由模块注册时自动挂载
-from app.routers import health, search, papers, knowledge, settings as settings_router, streaming, ideas, writing, review
+from app.routers import health, search, papers, knowledge, settings as settings_router, streaming, ideas, writing, review, verification, socratic
 
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(search.router, prefix="/api/v1", tags=["search"])
@@ -44,6 +46,8 @@ app.include_router(streaming.router, prefix="/api/v1", tags=["streaming"])
 app.include_router(ideas.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(writing.router, prefix="/api/v1", tags=["writing"])
 app.include_router(review.router, prefix="/api/v1", tags=["review"])
+app.include_router(verification.router, prefix="/api/v1", tags=["verification"])
+app.include_router(socratic.router, prefix="/api/v1", tags=["ideas"])
 
 
 if __name__ == "__main__":

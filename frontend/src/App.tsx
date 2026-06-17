@@ -5,6 +5,7 @@ import SearchPage from "./routes/SearchPage";
 import ReaderPage from "./routes/ReaderPage";
 import KnowledgeBasePage from "./routes/KnowledgeBasePage";
 import IdeaPage from "./routes/IdeaPage";
+import IdeaSocraticPage from "./routes/IdeaSocraticPage";
 import WritePage from "./routes/WritePage";
 import ReviewPage from "./routes/ReviewPage";
 import SettingsPage from "./routes/SettingsPage";
@@ -25,6 +26,7 @@ function App() {
         <Route path="papers/:id" element={<ReaderPage />} />
         <Route path="knowledge" element={<KnowledgeBasePage />} />
         <Route path="ideas" element={<IdeaPage />} />
+        <Route path="ideas/socratic" element={<IdeaSocraticPage />} />
         <Route path="write" element={<WritePage />} />
         <Route path="review" element={<ReviewPage />} />
         <Route path="settings" element={<SettingsPage />} />

@@ -302,6 +302,36 @@ class RebuttalScoreResponse(BaseModel):
     scored: list[ScoredRebuttal]
 
 
+# ── S2 Citation Verification ─────────────────────
+class CitationVerificationStatus(BaseModel):
+    total: int = 0
+    verified: int = 0
+    not_found: int = 0
+    ambiguous: int = 0
+    citations: list[dict] = Field(default_factory=list)
+
+
+# ── 7-mode AI Failure Checklist ──────────────────
+class FailureChecklistRequest(BaseModel):
+    writing_project_id: str = ""
+    text: str = ""
+
+
+class FailureChecklistMode(BaseModel):
+    mode: int
+    name: str
+    status: str
+    reasoning: str = ""
+    action_required: bool = False
+
+
+class FailureChecklistResult(BaseModel):
+    modes: list[FailureChecklistMode]
+    blocking: bool = False
+    summary: str = ""
+    override_reasoning: str = ""
+
+
 # ── LLM Provider ─────────────────────────────────
 class ProviderCreate(BaseModel):
     name: str

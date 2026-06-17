@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
     Column, String, Text, Integer, Float, Boolean,
-    DateTime, JSON, ForeignKey,
+    DateTime, JSON, ForeignKey, inspect, text,
 )
 from sqlalchemy.orm import relationship
 
@@ -58,6 +58,7 @@ class Paper(Base):
     # 本地数据
     pdf_path = Column(String(1024), default="")       # 本地缓存路径
     extracted_data = Column(JSON, default=dict)        # LLM 结构化提取结果
+    citation_verified = Column(JSON, default=list)     # S2 citation verification results
     tags = Column(JSON, default=list)                  # 用户标签
     notes = Column(Text, default="")                   # 用户笔记
     read_status = Column(String(16), default="unread") # unread / reading / read
@@ -174,3 +175,15 @@ class SearchHistory(Base):
     filters = Column(JSON, default=dict)
     result_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=_utcnow)
+
+
+def ensure_runtime_schema(engine) -> None:
+    """Apply small SQLite-compatible column additions when no migration tool is present."""
+    inspector = inspect(engine)
+    if "papers" not in inspector.get_table_names():
+        return
+
+    paper_columns = {column["name"] for column in inspector.get_columns("papers")}
+    with engine.begin() as connection:
+        if "citation_verified" not in paper_columns:
+            connection.execute(text("ALTER TABLE papers ADD COLUMN citation_verified JSON DEFAULT '[]'"))

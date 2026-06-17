@@ -33,6 +33,7 @@ export type Paper = {
   pdf_url: string;
   pdf_path: string;
   extracted_data: Record<string, unknown>;
+  citation_verified: Array<Record<string, unknown>>;
   tags: string[];
   notes: string;
   read_status: string;

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   BarChart3,
+  BrainCircuit,
   Check,
   FlaskConical,
   GitCompare,
@@ -31,6 +33,7 @@ const MODES: Array<{ id: IdeaMode; label: string; icon: LucideIcon }> = [
 ];
 
 export default function IdeaPage() {
+  const navigate = useNavigate();
   const [papers, setPapers] = useState<Paper[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<IdeaMode>("gap_analysis");
@@ -159,14 +162,23 @@ export default function IdeaPage() {
               从已导入论文中识别研究 Gap、跨领域迁移机会和趋势方向。
             </p>
           </div>
-          <button
-            onClick={generateIdeas}
-            disabled={generating}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-foreground px-4 text-sm font-medium text-background disabled:opacity-50"
-          >
-            {generating ? <Loader2 size={17} className="animate-spin" /> : <FlaskConical size={17} />}
-            {generating ? "生成中" : "生成 Idea"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => navigate("/ideas/socratic")}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border px-4 text-sm font-medium hover:bg-muted"
+            >
+              <BrainCircuit size={17} />
+              引导式 Idea 生成
+            </button>
+            <button
+              onClick={generateIdeas}
+              disabled={generating}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-foreground px-4 text-sm font-medium text-background disabled:opacity-50"
+            >
+              {generating ? <Loader2 size={17} className="animate-spin" /> : <FlaskConical size={17} />}
+              {generating ? "生成中" : "生成 Idea"}
+            </button>
+          </div>
         </div>
       </section>
 

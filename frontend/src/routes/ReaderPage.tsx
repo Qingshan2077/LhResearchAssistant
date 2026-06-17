@@ -4,15 +4,20 @@ import { api, type Paper } from "../lib/api";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
 import {
   ArrowLeft,
+  AlertTriangle,
   Bot,
   Brain,
   BookOpen,
+  CheckCircle2,
   Download,
   FileText,
+  Loader2,
   MessageSquare,
   Plus,
   Save,
+  ShieldCheck,
   Trash2,
+  XCircle,
 } from "lucide-react";
 import ReactFlow, {
   Background,
@@ -25,7 +30,15 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import { ChatPanel } from "../components/ChatPanel";
 
-type Tab = "structure" | "mindmap" | "notes" | "chat";
+type Tab = "structure" | "mindmap" | "notes" | "citations" | "chat";
+
+type CitationStatus = {
+  total: number;
+  verified: number;
+  not_found: number;
+  ambiguous: number;
+  citations: Array<Record<string, unknown>>;
+};
 
 export default function ReaderPage() {
   const { id } = useParams<{ id: string }>();
@@ -35,6 +48,9 @@ export default function ReaderPage() {
   const [parsing, setParsing] = useState(false);
   const [notes, setNotes] = useState("");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [verifyingCitations, setVerifyingCitations] = useState(false);
+  const [verificationProgress, setVerificationProgress] = useState("");
+  const [citationStatus, setCitationStatus] = useState<CitationStatus | null>(null);
 
   const mindmapData = useKnowledgeStore((s) => s.mindmapData);
   const fetchMindMap = useKnowledgeStore((s) => s.fetchMindMap);
@@ -51,9 +67,21 @@ export default function ReaderPage() {
         if (p.pdf_path) {
           setPdfUrl(`/api/v1/papers/${id}/pdf?t=${Date.now()}`);
         }
+        setCitationStatus({
+          total: p.citation_verified?.length || 0,
+          verified: p.citation_verified?.filter((item) => item.status === "verified").length || 0,
+          not_found: p.citation_verified?.filter((item) => item.status === "not_found").length || 0,
+          ambiguous: p.citation_verified?.filter((item) => item.status === "ambiguous").length || 0,
+          citations: p.citation_verified || [],
+        });
         // 加载思维图
         fetchMindMap(id);
       });
+    api
+      .get(`papers/${id}/verification-status`)
+      .json<CitationStatus>()
+      .then(setCitationStatus)
+      .catch(() => undefined);
   }, [id, fetchMindMap]);
 
   const handleParse = async () => {
@@ -104,6 +132,35 @@ export default function ReaderPage() {
     await api.patch(`papers/${id}`, { json: { notes } });
   };
 
+  const handleVerifyCitations = async () => {
+    if (!id) return;
+    setVerifyingCitations(true);
+    setActiveTab("citations");
+    setVerificationProgress("准备提取引用…");
+    try {
+      const response = await fetch(`/api/v1/papers/${id}/verify-citations`, { method: "POST" });
+      await readSse(response, (data) => {
+        if (data.type === "start") {
+          setVerificationProgress(`发现 ${data.total || 0} 条候选引用`);
+        }
+        if (data.type === "citation_status") {
+          setVerificationProgress(`${data.current || 0}/${data.total || 0}: ${String(data.citation || "")}`);
+          setCitationStatus((prev) => {
+            const citations = [...(prev?.citations || [])];
+            citations.push(data);
+            return summarizeCitations(citations);
+          });
+        }
+        if (data.type === "summary") {
+          setCitationStatus(data as CitationStatus);
+        }
+      });
+    } finally {
+      setVerifyingCitations(false);
+      setVerificationProgress("");
+    }
+  };
+
   if (!paper) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -146,6 +203,14 @@ export default function ReaderPage() {
             <Brain size={14} /> 已解析
           </span>
         )}
+        <button
+          onClick={handleVerifyCitations}
+          disabled={verifyingCitations}
+          className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
+        >
+          {verifyingCitations ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+          验证引用
+        </button>
       </div>
 
       <div className="flex gap-4 flex-1 min-h-0">
@@ -188,6 +253,7 @@ export default function ReaderPage() {
               { key: "structure", label: "结构化", icon: Brain },
               { key: "mindmap", label: "思维图", icon: BookOpen },
               { key: "notes", label: "笔记", icon: MessageSquare },
+              { key: "citations", label: "引用", icon: ShieldCheck },
               { key: "chat", label: "对话", icon: Bot },
             ] as const).map(({ key, label, icon: Icon }) => (
               <button
@@ -302,6 +368,15 @@ export default function ReaderPage() {
               </div>
             )}
 
+            {activeTab === "citations" && (
+              <CitationVerificationPanel
+                status={citationStatus}
+                progress={verificationProgress}
+                verifying={verifyingCitations}
+                onVerify={handleVerifyCitations}
+              />
+            )}
+
             {activeTab === "chat" && (
               <div className="flex h-full min-h-[420px]">
                 <ChatPanel
@@ -313,6 +388,111 @@ export default function ReaderPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+async function readSse(response: Response, onData: (data: Record<string, unknown>) => void) {
+  const reader = response.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        onData(JSON.parse(line.slice(6)));
+      } catch {
+        // Ignore malformed SSE rows.
+      }
+    }
+  }
+}
+
+function summarizeCitations(citations: Array<Record<string, unknown>>): CitationStatus {
+  return {
+    total: citations.length,
+    verified: citations.filter((item) => item.status === "verified").length,
+    not_found: citations.filter((item) => item.status === "not_found").length,
+    ambiguous: citations.filter((item) => item.status === "ambiguous").length,
+    citations,
+  };
+}
+
+function CitationVerificationPanel({
+  status,
+  progress,
+  verifying,
+  onVerify,
+}: {
+  status: CitationStatus | null;
+  progress: string;
+  verifying: boolean;
+  onVerify: () => void;
+}) {
+  const citations = status?.citations || [];
+  return (
+    <div className="flex h-full flex-col gap-3 text-sm">
+      <div className="grid grid-cols-4 gap-2 text-xs">
+        <CitationMetric label="Total" value={status?.total || 0} />
+        <CitationMetric label="Verified" value={status?.verified || 0} />
+        <CitationMetric label="Ambiguous" value={status?.ambiguous || 0} />
+        <CitationMetric label="Missing" value={status?.not_found || 0} />
+      </div>
+      <button
+        onClick={onVerify}
+        disabled={verifying}
+        className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs text-primary-foreground disabled:opacity-50"
+      >
+        {verifying ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
+        {verifying ? "验证中" : "重新验证引用"}
+      </button>
+      {progress && <div className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">{progress}</div>}
+      <div className="min-h-0 flex-1 overflow-auto">
+        {citations.length === 0 ? (
+          <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
+            还没有引用验证结果。
+          </div>
+        ) : (
+          citations.map((item, index) => <CitationRow key={`${String(item.citation)}-${index}`} item={item} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CitationMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md bg-muted/40 p-2">
+      <div className="text-muted-foreground">{label}</div>
+      <div className="text-base font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function CitationRow({ item }: { item: Record<string, unknown> }) {
+  const status = String(item.status || "not_found");
+  const Icon = status === "verified" ? CheckCircle2 : status === "ambiguous" ? AlertTriangle : XCircle;
+  const tone = status === "verified" ? "text-green-500" : status === "ambiguous" ? "text-amber-500" : "text-destructive";
+  const match = item.match as Record<string, unknown> | null;
+  return (
+    <div className="mb-2 rounded-md border border-border p-2 text-xs">
+      <div className={`mb-1 flex items-center gap-1 font-medium ${tone}`}>
+        <Icon size={13} />
+        {status}
+      </div>
+      <div className="line-clamp-2">{String(item.citation || "")}</div>
+      {match?.title && (
+        <div className="mt-1 line-clamp-2 text-muted-foreground">
+          Match: {String(match.title)} {match.year ? `(${String(match.year)})` : ""}
+        </div>
+      )}
     </div>
   );
 }

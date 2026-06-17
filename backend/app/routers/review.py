@@ -1,18 +1,22 @@
 """Venue recommendation, format checks, and simulated review routes."""
 
 import json
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
+from app.agents.failure_checklist_agent import run_failure_checklist
 from app.agents.review_agent import check_writing_quality, generate_cover_letter, generate_rebuttal, review_paper_simulation, score_rebuttal
 from app.database import get_db
 from app.database.sqlite import WritingProject
 from app.llm.router import get_active_provider
 from app.models import (
     CoverLetterRequest,
+    FailureChecklistRequest,
+    FailureChecklistResult,
     FormatCheckRequest,
     FormatCheckResult,
     RebuttalRequest,
@@ -117,7 +121,6 @@ async def generate_rebuttal_endpoint(req: RebuttalRequest, db: Session = Depends
 @router.post("/review/check-writing-quality", response_model=WritingQualityCheckResult)
 async def check_writing_quality_endpoint(req: WritingQualityCheckRequest, db: Session = Depends(get_db)):
     """Check a writing project's text for AI-typical writing patterns."""
-    from pathlib import Path
     provider, config = get_active_provider(db)
 
     if req.text.strip():
@@ -147,3 +150,22 @@ async def score_rebuttal_endpoint(req: RebuttalScoreRequest, db: Session = Depen
 
     scored = await score_rebuttal(criticisms, rebuttals, provider, config)
     return RebuttalScoreResponse(scored=scored)
+
+
+@router.post("/review/run-failure-checklist", response_model=FailureChecklistResult)
+async def run_failure_checklist_endpoint(req: FailureChecklistRequest, db: Session = Depends(get_db)):
+    """Run the 7-mode AI research failure checklist."""
+    text = req.text.strip()
+    if not text and req.writing_project_id:
+        project = db.query(WritingProject).filter(WritingProject.id == req.writing_project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Writing project not found")
+        main_tex = Path(project.latex_project_path or "") / "main.tex"
+        if main_tex.exists():
+            text = main_tex.read_text(encoding="utf-8", errors="ignore")
+
+    if not text:
+        raise HTTPException(status_code=400, detail="No text available for checklist")
+
+    provider, config = get_active_provider(db)
+    return await run_failure_checklist(text=text, provider=provider, config=config)
