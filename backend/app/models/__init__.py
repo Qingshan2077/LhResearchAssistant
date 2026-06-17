@@ -34,7 +34,7 @@ class PaperUpdate(BaseModel):
 
 
 class PaperResponse(PaperBase):
-    id: str
+    id: str = ""
     project_id: Optional[str] = None
     pdf_path: str = ""
     extracted_data: dict = {}
@@ -42,8 +42,8 @@ class PaperResponse(PaperBase):
     notes: str = ""
     read_status: str = "unread"
     rating: int = 0
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     is_new: bool = False  # 检索结果专用，标记是否已在本地库
 
     model_config = {"from_attributes": True}

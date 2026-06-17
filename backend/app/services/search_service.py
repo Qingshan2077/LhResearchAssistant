@@ -92,7 +92,10 @@ async def search_papers(
 
 def source_to_paper_dict(source: PaperSourceResult) -> dict:
     """将 PaperSourceResult 转换为 API 响应字典"""
+    import uuid
     return {
+        "id": str(uuid.uuid4()),
+        "project_id": None,
         "title": source.title,
         "authors": source.authors,
         "abstract": source.abstract,
@@ -106,4 +109,13 @@ def source_to_paper_dict(source: PaperSourceResult) -> dict:
         "keywords": source.keywords,
         "url": source.url,
         "pdf_url": source.pdf_url,
+        "pdf_path": "",
+        "extracted_data": {},
+        "tags": [],
+        "notes": "",
+        "read_status": "unread",
+        "rating": 0,
+        "created_at": None,
+        "updated_at": None,
+        "is_new": True,
     }
