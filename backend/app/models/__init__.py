@@ -164,6 +164,35 @@ class WritingProjectResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class GenerateSectionRequest(BaseModel):
+    section_name: str
+    paper_ids: list[str] = Field(default_factory=list)
+    style: str = "academic"
+    language: str = "en"
+
+
+class GenerateOutlineRequest(BaseModel):
+    project_id: str = "default"
+    title: str
+    paper_ids: list[str] = Field(default_factory=list)
+    language: str = "en"
+
+
+class PolishRequest(BaseModel):
+    text: str
+    style: str = "academic"  # academic / concise / fluent
+    language: str = "en"
+    preserve_technical: bool = True
+
+
+class CitationRequest(BaseModel):
+    paper_ids: list[str] = Field(default_factory=list)
+
+
+class CitationVerifyRequest(BaseModel):
+    bibtex_entries: list[str] = Field(default_factory=list)
+
+
 # ── LLM Provider ─────────────────────────────────
 class ProviderCreate(BaseModel):
     name: str
