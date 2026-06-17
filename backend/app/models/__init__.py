@@ -38,6 +38,7 @@ class PaperResponse(PaperBase):
     project_id: Optional[str] = None
     pdf_path: str = ""
     extracted_data: dict = {}
+    citation_verified: list[dict] = Field(default_factory=list)
     tags: list[str] = []
     notes: str = ""
     read_status: str = "unread"
@@ -54,6 +55,19 @@ class PaperListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class AskPapersRequest(BaseModel):
+    paper_ids: list[str] = Field(default_factory=list)
+    question: str
+    top_k: int = 8
+
+
+class ComparisonRequest(BaseModel):
+    paper_ids: list[str] = Field(default_factory=list)
+    dimensions: list[str] = Field(
+        default_factory=lambda: ["method", "dataset", "metric", "code_available", "key_finding"]
+    )
 
 
 # ── 搜索 ──────────────────────────────────────────

@@ -8,12 +8,14 @@ import {
   FileText,
   Layers,
   Loader2,
+  MessageSquare,
   Search,
   Sparkles,
+  Table2,
 } from "lucide-react";
 import clsx from "clsx";
 import { usePaperStore } from "../stores/paperStore";
-import { api, type Paper } from "../lib/api";
+import { api, type ComparisonTable, type Paper } from "../lib/api";
 
 const SOURCE_OPTIONS = [
   { id: "arxiv", label: "arXiv" },
@@ -29,6 +31,12 @@ export default function SearchPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [generatingReview, setGeneratingReview] = useState(false);
   const [reviewContent, setReviewContent] = useState("");
+  const [askQuestion, setAskQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [askAnswer, setAskAnswer] = useState("");
+  const [askStatus, setAskStatus] = useState("");
+  const [comparing, setComparing] = useState(false);
+  const [comparisonTable, setComparisonTable] = useState<ComparisonTable | null>(null);
   const reviewRef = useRef<HTMLDivElement>(null);
 
   const selectedPapers = useMemo(
@@ -47,6 +55,9 @@ export default function SearchPage() {
 
       setSelectedIds(new Set());
       setReviewContent("");
+      setAskAnswer("");
+      setAskStatus("");
+      setComparisonTable(null);
       await search(trimmed, activeSources);
     },
     [query, search, sources]
@@ -59,12 +70,120 @@ export default function SearchPage() {
   };
 
   const toggleSelect = (id: string) => {
+    setComparisonTable(null);
+    setAskStatus("");
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  };
+
+  const resolveSelectedLocalPaperIds = async (projectId = "default") => {
+    if (selectedPapers.length === 0) return [];
+
+    try {
+      await api.post("papers/batch", {
+        json: selectedPapers.map((p) => toPaperCreate(p, projectId)),
+      });
+    } catch {
+      // Existing papers are resolved by fetching the local library below.
+    }
+
+    const resp = await api
+      .get("papers", { searchParams: { project_id: projectId, page_size: 500 } })
+      .json<{ items: Paper[] }>();
+
+    return resp.items
+      .filter((paper) => selectedPapers.some((selected) => samePaper(paper, selected)))
+      .map((paper) => paper.id);
+  };
+
+  const askPapers = async () => {
+    if (selectedIds.size === 0 || !askQuestion.trim()) return;
+    setAsking(true);
+    setAskAnswer("");
+    setAskStatus("Preparing selected papers...");
+
+    try {
+      const paperIds = await resolveSelectedLocalPaperIds();
+      if (paperIds.length === 0) {
+        setAskStatus("No selected papers could be resolved locally.");
+        return;
+      }
+
+      const response = await fetch("/api/v1/papers/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paper_ids: paperIds,
+          question: askQuestion,
+          top_k: 8,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Ask request failed: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) return;
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const rawLine of lines) {
+          const line = rawLine.trimEnd();
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === "chunk") {
+              setAskAnswer((prev) => prev + data.content);
+            } else if (data.type === "status") {
+              setAskStatus(String(data.message || ""));
+            } else if (data.type === "error") {
+              setAskStatus(String(data.message || "Ask failed."));
+            } else if (data.type === "done") {
+              setAskStatus("");
+            }
+          } catch {
+            // Ignore malformed SSE rows.
+          }
+        }
+      }
+    } catch (e) {
+      setAskStatus(`Ask failed: ${e}`);
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  const generateComparison = async () => {
+    if (selectedIds.size < 2) return;
+    setComparing(true);
+    setComparisonTable(null);
+
+    try {
+      const paperIds = await resolveSelectedLocalPaperIds();
+      if (paperIds.length < 2) return;
+      const resp = await api
+        .post("papers/compare", {
+          json: {
+            paper_ids: paperIds,
+            dimensions: ["method", "dataset", "metric", "code_available", "key_finding"],
+          },
+        })
+        .json<ComparisonTable>();
+      setComparisonTable(resp);
+    } finally {
+      setComparing(false);
+    }
   };
 
   const handleGenerateReview = async () => {
@@ -269,6 +388,75 @@ export default function SearchPage() {
         </div>
       )}
 
+      {selectedIds.size > 0 && (
+        <section className="overflow-hidden rounded-lg border border-cyan-400/30 bg-card shadow-[0_18px_60px_rgba(14,165,233,0.10)]">
+          <div className="border-b border-border bg-gradient-to-r from-cyan-500/10 via-violet-500/10 to-amber-400/10 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-foreground">Selected-paper AI workspace</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  Ask across selected papers or generate a structured comparison matrix.
+                </div>
+              </div>
+              <div className="rounded-md border border-border bg-background/70 px-2.5 py-1 text-xs text-muted-foreground">
+                {selectedIds.size} selected
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="min-w-0">
+              <div className="flex flex-col gap-2 md:flex-row">
+                <input
+                  value={askQuestion}
+                  onChange={(e) => setAskQuestion(e.target.value)}
+                  placeholder="例如：这些论文的共同方法和主要差异是什么？"
+                  className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/25"
+                />
+                <button
+                  onClick={askPapers}
+                  disabled={asking || !askQuestion.trim()}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-cyan-600 px-4 text-sm font-medium text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {asking ? <Loader2 size={16} className="animate-spin" /> : <MessageSquare size={16} />}
+                  Ask
+                </button>
+              </div>
+
+              {askStatus && (
+                <div className="mt-2 text-xs text-cyan-600 dark:text-cyan-300">{askStatus}</div>
+              )}
+              {askAnswer && (
+                <div className="mt-3 max-h-56 overflow-auto rounded-md border border-border bg-background/70 p-3 text-sm leading-6 text-muted-foreground">
+                  <div
+                    className="prose prose-sm max-w-none dark:prose-invert"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(askAnswer) }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2 md:flex-row lg:flex-col">
+              <button
+                onClick={generateComparison}
+                disabled={selectedIds.size < 2 || comparing}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {comparing ? <Loader2 size={16} className="animate-spin" /> : <Table2 size={16} />}
+                Compare
+              </button>
+              <div className="text-xs text-muted-foreground">2+ papers required</div>
+            </div>
+          </div>
+
+          {comparisonTable && (
+            <div className="border-t border-border p-4">
+              <PaperComparisonTable data={comparisonTable} />
+            </div>
+          )}
+        </section>
+      )}
+
       <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.48fr)]">
         <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -437,6 +625,68 @@ function EmptyState({ title, body }: { title: string; body: string }) {
       <div className="mt-1 text-xs text-muted-foreground">{body}</div>
     </div>
   );
+}
+
+function PaperComparisonTable({ data }: { data: ComparisonTable }) {
+  const dimensions = data.table.length > 0 ? Object.keys(data.table[0].values || {}) : [];
+
+  return (
+    <div className="min-w-0">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold text-foreground">Comparison matrix</div>
+        <div className="text-xs text-muted-foreground">{data.table.length} papers</div>
+      </div>
+      <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full min-w-[780px] border-collapse text-xs">
+          <thead>
+            <tr className="bg-muted/60 text-muted-foreground">
+              <th className="border-b border-r border-border px-3 py-2 text-left font-medium">Title</th>
+              <th className="border-b border-r border-border px-3 py-2 text-left font-medium">Year</th>
+              <th className="border-b border-r border-border px-3 py-2 text-left font-medium">Venue</th>
+              {dimensions.map((dimension) => (
+                <th key={dimension} className="border-b border-r border-border px-3 py-2 text-left font-medium">
+                  {dimension.replace(/_/g, " ")}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.table.map((row) => (
+              <tr key={row.id} className="align-top hover:bg-muted/30">
+                <td className="max-w-[260px] border-r border-border px-3 py-2 font-medium text-foreground">
+                  {row.title}
+                </td>
+                <td className="border-r border-border px-3 py-2 text-muted-foreground">{row.year || "-"}</td>
+                <td className="border-r border-border px-3 py-2 text-muted-foreground">{row.venue || "-"}</td>
+                {dimensions.map((dimension) => (
+                  <td key={dimension} className="max-w-[240px] border-r border-border px-3 py-2 text-muted-foreground">
+                    {row.values?.[dimension] || "-"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {data.notes && <div className="mt-3 text-xs italic text-muted-foreground">{data.notes}</div>}
+    </div>
+  );
+}
+
+function samePaper(left: Paper, right: Paper) {
+  const leftDoi = normalizePaperKey(left.doi);
+  const rightDoi = normalizePaperKey(right.doi);
+  if (leftDoi && rightDoi && leftDoi === rightDoi) return true;
+
+  const leftArxiv = normalizePaperKey(left.arxiv_id);
+  const rightArxiv = normalizePaperKey(right.arxiv_id);
+  if (leftArxiv && rightArxiv && leftArxiv === rightArxiv) return true;
+
+  return normalizePaperKey(left.title) === normalizePaperKey(right.title);
+}
+
+function normalizePaperKey(value: string | null | undefined) {
+  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function toPaperCreate(paper: Paper, projectId: string) {

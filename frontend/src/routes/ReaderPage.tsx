@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { api, type Paper } from "../lib/api";
+import { api, type CitationGraphData, type CitationGraphNode, type Paper } from "../lib/api";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
 import {
   ArrowLeft,
@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   Download,
   FileText,
+  GitBranch,
   Loader2,
   MessageSquare,
   Plus,
@@ -30,7 +31,7 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import { ChatPanel } from "../components/ChatPanel";
 
-type Tab = "structure" | "mindmap" | "notes" | "citations" | "chat";
+type Tab = "structure" | "mindmap" | "notes" | "citations" | "citation_graph" | "chat";
 
 type CitationStatus = {
   total: number;
@@ -51,10 +52,33 @@ export default function ReaderPage() {
   const [verifyingCitations, setVerifyingCitations] = useState(false);
   const [verificationProgress, setVerificationProgress] = useState("");
   const [citationStatus, setCitationStatus] = useState<CitationStatus | null>(null);
+  const [citationGraph, setCitationGraph] = useState<CitationGraphData | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphError, setGraphError] = useState("");
 
   const mindmapData = useKnowledgeStore((s) => s.mindmapData);
   const fetchMindMap = useKnowledgeStore((s) => s.fetchMindMap);
   const saveMindMap = useKnowledgeStore((s) => s.saveMindMap);
+
+  const fetchCitationGraph = async () => {
+    if (!id) return;
+    setGraphLoading(true);
+    setGraphError("");
+    try {
+      const data = await api.get(`papers/${id}/citation-graph`).json<CitationGraphData>();
+      if (data.error) {
+        setCitationGraph(null);
+        setGraphError(data.error);
+      } else {
+        setCitationGraph(data);
+      }
+    } catch (e) {
+      setCitationGraph(null);
+      setGraphError(`Failed to load citation graph: ${e}`);
+    } finally {
+      setGraphLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -83,6 +107,12 @@ export default function ReaderPage() {
       .then(setCitationStatus)
       .catch(() => undefined);
   }, [id, fetchMindMap]);
+
+  useEffect(() => {
+    if (activeTab === "citation_graph" && !citationGraph && !graphLoading) {
+      fetchCitationGraph();
+    }
+  }, [activeTab, citationGraph, graphLoading]);
 
   const handleParse = async () => {
     if (!id) return;
@@ -255,6 +285,7 @@ export default function ReaderPage() {
               { key: "notes", label: "笔记", icon: MessageSquare },
               { key: "citations", label: "引用", icon: ShieldCheck },
               { key: "chat", label: "对话", icon: Bot },
+              { key: "citation_graph", label: "引用图", icon: GitBranch },
             ] as const).map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
@@ -377,6 +408,24 @@ export default function ReaderPage() {
               />
             )}
 
+            {activeTab === "citation_graph" && (
+              <CitationGraphPanel
+                data={citationGraph}
+                loading={graphLoading}
+                error={graphError}
+                onRefresh={fetchCitationGraph}
+                onOpenNode={(node) => {
+                  if (node.local_id) {
+                    navigate(`/papers/${node.local_id}`);
+                    return;
+                  }
+                  if (node.url) {
+                    window.open(node.url, "_blank", "noreferrer");
+                  }
+                }}
+              />
+            )}
+
             {activeTab === "chat" && (
               <div className="flex h-full min-h-[420px]">
                 <ChatPanel
@@ -423,6 +472,148 @@ function summarizeCitations(citations: Array<Record<string, unknown>>): Citation
     ambiguous: citations.filter((item) => item.status === "ambiguous").length,
     citations,
   };
+}
+
+function CitationGraphPanel({
+  data,
+  loading,
+  error,
+  onRefresh,
+  onOpenNode,
+}: {
+  data: CitationGraphData | null;
+  loading: boolean;
+  error: string;
+  onRefresh: () => void;
+  onOpenNode: (node: CitationGraphNode) => void;
+}) {
+  const { flowNodes, flowEdges } = useMemo(() => toCitationFlowElements(data), [data]);
+
+  if (loading) {
+    return (
+      <div className="flex h-full min-h-[420px] items-center justify-center text-sm text-muted-foreground">
+        <Loader2 size={18} className="mr-2 animate-spin" />
+        Loading citation graph...
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-lg border border-dashed border-border p-4 text-center">
+        <GitBranch size={28} className="mb-3 text-muted-foreground" />
+        <div className="text-sm font-medium text-foreground">Citation graph unavailable</div>
+        <div className="mt-1 text-xs text-muted-foreground">{error || "No citation graph data."}</div>
+        <button
+          onClick={onRefresh}
+          className="mt-3 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-[420px] flex-col gap-3">
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <CitationMetric label="Seed" value={1} />
+        <CitationMetric label="References" value={data.references.length} />
+        <CitationMetric label="Citations" value={data.citations.length} />
+      </div>
+      <div className="relative min-h-[360px] flex-1 overflow-hidden rounded-lg border border-border bg-background">
+        <ReactFlow
+          nodes={flowNodes}
+          edges={flowEdges}
+          onNodeClick={(_, node) => onOpenNode(node.data.sourceNode as CitationGraphNode)}
+          fitView
+          panOnDrag
+          nodesDraggable
+        >
+          <Background gap={18} color="hsl(215 20.2% 65.1% / 0.22)" />
+          <Controls />
+        </ReactFlow>
+      </div>
+    </div>
+  );
+}
+
+function toCitationFlowElements(data: CitationGraphData | null): { flowNodes: Node[]; flowEdges: Edge[] } {
+  if (!data) return { flowNodes: [], flowEdges: [] };
+
+  const nodes = data.graph.nodes;
+  const references = nodes.filter((node) => node.group === "reference");
+  const citations = nodes.filter((node) => node.group === "citation");
+  const seed = nodes.find((node) => node.is_seed) || data.paper;
+  const flowNodes: Node[] = [];
+
+  flowNodes.push(toCitationFlowNode(seed, { x: 360, y: 210 }));
+  references.forEach((node, index) => {
+    flowNodes.push(toCitationFlowNode(node, { x: 20, y: laneY(index, references.length) }));
+  });
+  citations.forEach((node, index) => {
+    flowNodes.push(toCitationFlowNode(node, { x: 700, y: laneY(index, citations.length) }));
+  });
+
+  const flowEdges = data.graph.edges.map<Edge>((edge, index) => ({
+    id: `${edge.source}->${edge.target}:${index}`,
+    source: edge.source,
+    target: edge.target,
+    type: "smoothstep",
+    animated: true,
+    style: { stroke: "hsl(215 20.2% 65.1%)" },
+  }));
+
+  return { flowNodes, flowEdges };
+}
+
+function laneY(index: number, total: number) {
+  const spacing = 118;
+  const offset = Math.max(0, (total - 1) * spacing) / 2;
+  return 210 + index * spacing - offset;
+}
+
+function toCitationFlowNode(node: CitationGraphNode, position: { x: number; y: number }): Node {
+  return {
+    id: node.id,
+    position,
+    data: {
+      sourceNode: node,
+      label: renderCitationFlowLabel(node),
+    },
+    style: citationNodeStyle(node.group),
+  };
+}
+
+function citationNodeStyle(group: CitationGraphNode["group"]): CSSProperties {
+  const tones: Record<CitationGraphNode["group"], CSSProperties> = {
+    seed: { borderColor: "#f59e0b", background: "rgba(245, 158, 11, 0.16)" },
+    reference: { borderColor: "#38bdf8", background: "rgba(14, 165, 233, 0.12)" },
+    citation: { borderColor: "#34d399", background: "rgba(16, 185, 129, 0.12)" },
+  };
+  return {
+    width: 220,
+    borderRadius: 8,
+    border: "1px solid var(--color-border)",
+    color: "var(--color-foreground)",
+    fontSize: 12,
+    padding: 10,
+    cursor: "pointer",
+    ...tones[group],
+  };
+}
+
+function renderCitationFlowLabel(node: CitationGraphNode) {
+  return (
+    <div title={node.title} className="max-w-[200px]">
+      <div className="line-clamp-2 text-xs font-semibold">{node.title || node.label}</div>
+      <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+        {node.year && <span>{node.year}</span>}
+        <span>{node.citation_count || 0} cites</span>
+        {node.local_id && <span className="text-cyan-500">local</span>}
+      </div>
+    </div>
+  );
 }
 
 function CitationVerificationPanel({

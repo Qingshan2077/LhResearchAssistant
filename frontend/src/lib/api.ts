@@ -90,3 +90,43 @@ export type MindMapData = {
     position: { x: number; y: number };
   }>;
 };
+
+export type CitationGraphData = {
+  paper: CitationGraphNode;
+  references: CitationGraphNode[];
+  citations: CitationGraphNode[];
+  graph: {
+    nodes: CitationGraphNode[];
+    edges: Array<{ source: string; target: string; type: string }>;
+  };
+  error?: string;
+};
+
+export type CitationGraphNode = {
+  id: string;
+  title: string;
+  label: string;
+  year: number | null;
+  authors?: string[];
+  venue?: string;
+  external_ids?: Record<string, string>;
+  citation_count: number;
+  url?: string;
+  is_seed: boolean;
+  group: "seed" | "reference" | "citation";
+  local_id?: string;
+  tags?: string[];
+  notes?: string;
+  read_status?: string;
+};
+
+export type ComparisonTable = {
+  table: Array<{
+    id: string;
+    title: string;
+    year: number | null;
+    venue: string;
+    values: Record<string, string>;
+  }>;
+  notes: string;
+};
