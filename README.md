@@ -9,7 +9,7 @@
 
 **English** | [中文](#中文介绍)
 
-LhResearchAssistant is a desktop application for CS researchers that covers the entire research workflow: paper retrieval → reading & analysis → idea generation → LaTeX writing → journal selection & review. Powered by LLM (DeepSeek / OpenAI / Claude / Ollama), local knowledge base, and vector search.
+LhResearchAssistant is a desktop application for CS researchers that covers the entire research workflow: paper retrieval → reading & analysis → idea generation → LaTeX writing → journal selection & review. Powered by LLM (DeepSeek / OpenAI / Claude / Ollama), local knowledge base, Usage Dashboard, full i18n (EN/ZH), and vector search.
 
 ---
 
@@ -67,6 +67,21 @@ LhResearchAssistant is a desktop application for CS researchers that covers the 
 - **格式检查**：页数、匿名、摘要字数、必要章节、引用样式 — 按模板规则检查
 - **模拟审稿**：4 角色审稿人（方法/实验/理论/写作）+ meta-review + 决策
 - **Cover Letter / Rebuttal** 生成
+- **Sprint Contract**：Paper-blind Pre-commitment（投稿前自检清单）
+- **Writing Quality Check**：AI 写作质量评估（清晰度/简洁性/逻辑性）
+- **7-mode AI Failure Checklist**：7 大失败模式检测
+- **S2 Citation Verification**：引用真实性验证
+
+#### ⑥ 设置与管理
+
+- **LLM Provider 管理**：DeepSeek / OpenAI / Claude / Ollama / Custom，活跃切换 + 内联编辑
+- **用量统计看板**：调用次数 / Token 用量 / 按 Provider & 功能聚合
+- **数据管理**：库统计 + 清空向量缓存
+- **系统信息**：版本/路径/占用
+
+#### 🌐 中英文切换
+
+- **完整 i18n**：所有页面支持中/英文一键切换，存储在 localStorage
 
 ### 技术栈
 
@@ -192,11 +207,13 @@ LhResearchAssistant/
 - [x] Phase 1: 文献检索 + PDF 阅读 + 基础知识库
 - [x] Phase 2: 知识图谱增强 + ChatPanel + Idea 生成 + Chroma 向量库
 - [x] Phase 3: 写作 Agent + BibTeX + 润色 + 选刊 + 格式检查 + 模拟审稿
-- [ ] **Idea 生成改进**：多轮 pipeline（深度分析 → 假设质检 → 候选生成 → 检索验证），参考 academic-research-skills
+- [x] Step 1-3 (ARS 集成): Sprint Contract / Writing Quality / Rebuttal / S2验证 / 苏格拉底导师 / Generator-Evaluator / 动态人设
+- [x] **Settings 页面**: Provider 管理 + 用量看板 + 数据管理 + 系统信息
+- [x] **中英文切换**: 全页面 i18n
 - [ ] **团队协作**：多用户 + WebSocket 实时同步
-- [ ] **更多数据源**：Google Scholar、PubMed、OpenAlex
 - [ ] **知识图谱概念级合并**：同义概念融合、多跳推理
 - [ ] **图表自动提取**：PDF 图表识别与 caption 提取
+- [ ] **插件系统**：自定义数据源 / Agent / 模板
 
 ---
 
