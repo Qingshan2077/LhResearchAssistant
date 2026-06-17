@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { api, type Paper } from "../lib/api";
+import { t } from "../i18n";
+import { useSettingsStore } from "../stores/settingsStore";
 
 type Template = {
   name: string;
@@ -74,6 +76,7 @@ const DEFAULT_OUTLINE = [
 ];
 
 export default function WritePage() {
+  const language = useSettingsStore((s) => s.language);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [projects, setProjects] = useState<WritingProject[]>([]);
   const [papers, setPapers] = useState<Paper[]>([]);
@@ -359,9 +362,9 @@ export default function WritePage() {
               <FileText size={14} />
               LaTeX Workspace
             </div>
-            <h1 className="mt-2 text-3xl font-semibold">论文写作</h1>
+            <h1 className="mt-2 text-3xl font-semibold">{t(language, "writingProject")}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              基于知识库论文生成大纲、章节内容、BibTeX 和润色稿。
+              {t(language, "writeSubtitle")}
             </p>
           </div>
 
@@ -375,13 +378,13 @@ export default function WritePage() {
             <input
               value={form.author}
               onChange={(e) => setForm((prev) => ({ ...prev, author: e.target.value }))}
-              placeholder="作者"
+              placeholder={t(language, "authorName")}
               className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
             <input
               value={form.targetVenue}
               onChange={(e) => setForm((prev) => ({ ...prev, targetVenue: e.target.value }))}
-              placeholder="目标会议"
+              placeholder={t(language, "targetVenue")}
               className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
             <select
@@ -409,11 +412,11 @@ export default function WritePage() {
 
       <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
         <aside className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
-          <div className="border-b border-border px-4 py-3 text-sm font-medium">写作项目</div>
+          <div className="border-b border-border px-4 py-3 text-sm font-medium">{t(language, "writingProject")}</div>
           <div className="h-full overflow-auto p-3">
             {projects.length === 0 ? (
               <div className="flex h-48 items-center justify-center text-center text-sm text-muted-foreground">
-                还没有写作项目。
+                {t(language, "noWritingProjects")}
               </div>
             ) : (
               <div className="grid gap-2">
@@ -496,7 +499,7 @@ export default function WritePage() {
                       className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] hover:bg-muted disabled:opacity-50"
                     >
                       {generatingOutline ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                      生成全部
+                      {t(language, "generateOutline")}
                     </button>
                   </div>
                   <div className="h-[calc(100%-13rem)] overflow-auto p-2">
@@ -537,7 +540,7 @@ export default function WritePage() {
                         className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50"
                       >
                         {generatingSection === activeSection ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
-                        生成
+                        {t(language, "generateSection")}
                       </button>
                     </div>
                   </div>
@@ -567,7 +570,7 @@ export default function WritePage() {
                             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50"
                           >
                             {polishing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                            润色
+                            {t(language, "polishText")}
                           </button>
                         </div>
                       </div>
@@ -577,7 +580,7 @@ export default function WritePage() {
                           setSectionContent((prev) => ({ ...prev, [activeSection]: e.target.value }))
                         }
                         className="min-h-0 flex-1 resize-none bg-background p-4 font-mono text-sm leading-6 outline-none"
-                        placeholder="点击生成，或手动撰写当前章节。"
+                        placeholder={t(language, "sectionContentPlaceholder")}
                       />
                     </div>
                   </div>
@@ -586,7 +589,7 @@ export default function WritePage() {
             </div>
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              创建或选择一个写作项目。
+              {t(language, "selectOrCreateProject")}
             </div>
           )}
         </section>
@@ -633,7 +636,7 @@ export default function WritePage() {
                 className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs text-primary-foreground disabled:opacity-50"
               >
                 <Download size={13} />
-                生成并下载 .bib
+                {t(language, "exportLatex")}
               </button>
               <button
                 onClick={verifyBibtex}
@@ -661,7 +664,7 @@ export default function WritePage() {
               </div>
             ) : (
               <div className="text-xs text-muted-foreground">
-                在章节内容区点击“润色”后显示原文与润色稿。
+                {t(language, "polishResultHint")}
               </div>
             )}
 
@@ -692,7 +695,7 @@ export default function WritePage() {
                 <div className="grid gap-2">
                   {qualityResult.flags.length === 0 ? (
                     <div className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
-                      未发现明显写作质量问题。
+                      {t(language, "noQualityIssues")}
                     </div>
                   ) : (
                     qualityResult.flags.map((flag) => (

@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
+import { t } from "../i18n";
+import { useSettingsStore } from "../stores/settingsStore";
 import { api } from "../lib/api";
 
 type WritingProject = {
@@ -128,6 +130,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: LucideIcon }> = [
 ];
 
 export default function ReviewPage() {
+  const language = useSettingsStore((s) => s.language);
   const [projects, setProjects] = useState<WritingProject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("venue");
@@ -407,7 +410,7 @@ export default function ReviewPage() {
               >
                 {[1, 2, 3, 4].map((count) => (
                   <option key={count} value={count}>
-                    {count} 位审稿人
+                    {count}{t(language, "reviewerCount")}
                   </option>
                 ))}
               </select>
@@ -485,7 +488,7 @@ export default function ReviewPage() {
               <SectionTitle icon={BookMarked} title="推荐结果" />
               <div className="mt-4 grid gap-3">
                 {venueResults.length === 0 ? (
-                  <EmptyState text="输入标题、摘要和方法后生成推荐列表。" />
+                  <EmptyState text={t(language, "venueEmpty")} />
                 ) : (
                   venueResults.map((item, index) => (
                     <VenueCard key={item.name} item={item} rank={index + 1} onUse={() => setVenue(item.name)} />
@@ -524,7 +527,7 @@ export default function ReviewPage() {
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-4">
               {!formatResult ? (
-                <EmptyState text="选择模板规则后检查 main.tex 的页数、匿名、章节和参考文献格式。" />
+                <EmptyState text={t(language, "formatCheckHint")} />
               ) : (
                 <div className="grid gap-4">
                   <div
@@ -543,7 +546,7 @@ export default function ReviewPage() {
                   </div>
                   <div className="grid gap-2">
                     {formatResult.issues.length === 0 ? (
-                      <EmptyState text="未发现格式问题。" />
+                      <EmptyState text={t(language, "noFormatIssues")} />
                     ) : (
                       formatResult.issues.map((issue, index) => <FormatIssueRow key={`${issue.rule}-${index}`} issue={issue} />)
                     )}
@@ -570,7 +573,7 @@ export default function ReviewPage() {
               </div>
               <div className="min-h-0 flex-1 overflow-auto p-4">
                 {reviewers.length === 0 ? (
-                  <EmptyState text={reviewLog || "点击开始审稿，流式生成每位审稿人的结构化意见。"} />
+                  <EmptyState text={reviewLog || t(language, "startReviewHint")} />
                 ) : (
                   <div className="grid gap-4">
                     {reviewers.map((review) => (
@@ -605,7 +608,7 @@ export default function ReviewPage() {
                   </div>
                 </div>
               ) : (
-                <EmptyState text={simulating ? reviewLog : "Meta-review 会在所有审稿人完成后出现。"} />
+                <EmptyState text={simulating ? reviewLog : t(language, "metaReviewHint")} />
               )}
             </aside>
           </div>
@@ -630,7 +633,7 @@ export default function ReviewPage() {
                   <textarea
                     value={coverNotes}
                     onChange={(event) => setCoverNotes(event.target.value)}
-                    placeholder="补充给编辑的说明"
+                    placeholder={t(language, "coverLetterPlaceholder")}
                     className="resize-none border-b border-border bg-background p-3 text-sm leading-6 outline-none"
                   />
                   <textarea
@@ -687,13 +690,13 @@ export default function ReviewPage() {
                 <textarea
                   value={criticismText}
                   onChange={(event) => setCriticismText(event.target.value)}
-                  placeholder="每行一条审稿意见，例如：C1: 核心假设未验证"
+                  placeholder={t(language, "rebuttalCriticismPlaceholder")}
                   className="h-28 resize-none rounded-md border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"
                 />
                 <textarea
                   value={rebuttalScoreText}
                   onChange={(event) => setRebuttalScoreText(event.target.value)}
-                  placeholder="每行一条回复，例如：R1: 我们在第4节补充了3个数据集验证"
+                  placeholder={t(language, "rebuttalResponsePlaceholder")}
                   className="h-28 resize-none rounded-md border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
@@ -725,7 +728,7 @@ export default function ReviewPage() {
               <textarea
                 value={checklistText}
                 onChange={(event) => setChecklistText(event.target.value)}
-                placeholder="可选：粘贴要检查的论文段落。留空时会读取当前写作项目 main.tex。"
+                placeholder={t(language, "failureChecklistPlaceholder")}
                 className="min-h-0 flex-1 resize-none bg-background p-4 text-sm leading-6 outline-none"
               />
             </section>
@@ -733,7 +736,7 @@ export default function ReviewPage() {
             <section className="min-h-0 overflow-auto rounded-lg border border-border bg-card p-4">
               <SectionTitle icon={ShieldCheck} title="检查结果" />
               {!checklistResult ? (
-                <EmptyState text="运行后会显示 7 个失败模式的状态、理由和是否阻塞。" />
+                <EmptyState text={t(language, "failureChecklistHint")} />
               ) : (
                 <FailureChecklistView result={checklistResult} />
               )}
@@ -844,6 +847,7 @@ function MetricTile({ label, value, icon: Icon, tone }: { label: string; value: 
 }
 
 function VenueCard({ item, rank, onUse }: { item: VenueResult; rank: number; onUse: () => void }) {
+  const language = useSettingsStore((s) => s.language);
   return (
     <div className="rounded-lg border border-border bg-background p-4">
       <div className="flex items-start justify-between gap-3">
@@ -863,7 +867,7 @@ function VenueCard({ item, rank, onUse }: { item: VenueResult; rank: number; onU
           <div className="mt-1 text-sm text-muted-foreground">{item.full_name}</div>
         </div>
         <button onClick={onUse} className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted">
-          设为目标
+          {t(language, "setTarget")}
         </button>
       </div>
       <div className="mt-3 grid gap-3 md:grid-cols-[1fr_140px]">
@@ -1014,6 +1018,7 @@ function ReviewList({ title, items, tone }: { title: string; items: string[]; to
 }
 
 function FailureChecklistView({ result }: { result: FailureChecklistResult }) {
+  const language = useSettingsStore((s) => s.language);
   return (
     <div className="mt-4 grid gap-4">
       <div
@@ -1024,7 +1029,7 @@ function FailureChecklistView({ result }: { result: FailureChecklistResult }) {
       >
         <div className="flex items-center gap-2 text-sm font-semibold">
           {result.blocking ? <XCircle size={17} /> : <CheckCircle2 size={17} />}
-          {result.blocking ? "存在阻塞项" : "未发现阻塞项"}
+          {result.blocking ? t(language, "hasBlocking") : t(language, "noBlocking")}
         </div>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">{result.summary}</p>
       </div>

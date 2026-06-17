@@ -29,6 +29,8 @@ import ReactFlow, {
   useNodesState,
 } from "reactflow";
 import "reactflow/dist/style.css";
+import { t } from "../i18n";
+import { useSettingsStore } from "../stores/settingsStore";
 import { ChatPanel } from "../components/ChatPanel";
 
 type Tab = "structure" | "mindmap" | "notes" | "citations" | "citation_graph" | "chat";
@@ -60,6 +62,8 @@ export default function ReaderPage() {
   const mindmapData = useKnowledgeStore((s) => s.mindmapData);
   const fetchMindMap = useKnowledgeStore((s) => s.fetchMindMap);
   const saveMindMap = useKnowledgeStore((s) => s.saveMindMap);
+
+  const language = useSettingsStore((s) => s.language);
 
   const fetchCitationGraph = async () => {
     if (!id) return;
@@ -298,9 +302,9 @@ export default function ReaderPage() {
             ) : (
               <div className="text-center p-8 text-muted-foreground">
                 <FileText size={48} className="mx-auto mb-4 opacity-50" />
-                <p className="text-sm">PDF 无法显示</p>
+                <p className="text-sm">{t(language, "pdfCannotDisplay")}</p>
                 <p className="text-xs mt-1">
-                  {paper.pdf_download_error || (paper.pdf_url ? "尚未下载到本地。" : "该文献没有可用的开放 PDF 链接。")}
+                  {paper.pdf_download_error || (paper.pdf_url ? t(language, "pdfNotDownloaded") : t(language, "pdfNoOpenAccess"))}
                 </p>
                 {paper.pdf_url && (
                   <button
@@ -309,7 +313,7 @@ export default function ReaderPage() {
                     className="mt-4 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-foreground hover:bg-muted disabled:opacity-50"
                   >
                     {downloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                    后台下载并打开 PDF
+                    {t(language, "downloadAndOpenPdf")}
                   </button>
                 )}
               </div>
@@ -684,13 +688,13 @@ function CitationVerificationPanel({
         className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs text-primary-foreground disabled:opacity-50"
       >
         {verifying ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
-        {verifying ? "验证中" : "重新验证引用"}
+        {verifying ? t(language, "verifying") : t(language, "reVerifyCitations")}
       </button>
       {progress && <div className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">{progress}</div>}
       <div className="min-h-0 flex-1 overflow-auto">
         {citations.length === 0 ? (
           <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
-            还没有引用验证结果。
+            {t(language, "noCitationVerification")}
           </div>
         ) : (
           citations.map((item, index) => <CitationRow key={`${String(item.citation)}-${index}`} item={item} />)

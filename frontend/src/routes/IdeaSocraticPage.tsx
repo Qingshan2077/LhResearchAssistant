@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, BrainCircuit, CheckCircle2, Lightbulb, Loader2, Send, Square, Target } from "lucide-react";
 import clsx from "clsx";
 import { useNavigate } from "react-router-dom";
+import { t } from "../i18n";
+import { useSettingsStore } from "../stores/settingsStore";
 import { useSocraticStore } from "../stores/socraticStore";
 
 const LAYERS = [
@@ -22,6 +24,7 @@ const SIGNALS = [
 
 export default function IdeaSocraticPage() {
   const navigate = useNavigate();
+  const language = useSettingsStore((s) => s.language);
   const {
     sessionId,
     messages,
@@ -123,11 +126,11 @@ export default function IdeaSocraticPage() {
 
       {!sessionId ? (
         <section className="rounded-lg border border-border bg-card p-5">
-          <div className="mb-3 text-sm font-medium">先写下你的研究想法、困惑或目标</div>
+          <div className="mb-3 text-sm font-medium">{t(language, "socraticPrompt")}</div>
           <textarea
             value={initial}
             onChange={(event) => setInitial(event.target.value)}
-            placeholder="例如：我不确定大模型 Agent 的记忆机制应该怎样形成一个可投稿的研究问题。"
+            placeholder={t(language, "socraticPlaceholder")}
             className="h-36 w-full resize-none rounded-md border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"
           />
           <button
@@ -183,7 +186,7 @@ export default function IdeaSocraticPage() {
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit();
                   }}
-                  placeholder="回答 Mentor 的问题。可以用 [INSIGHT: ...] 标记关键洞察。"
+                  placeholder={t(language, "socraticAnswerPlaceholder")}
                   className="h-20 min-w-0 flex-1 resize-none rounded-md border border-input bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
                 <button
@@ -222,7 +225,7 @@ export default function IdeaSocraticPage() {
               </div>
               {insights.length === 0 ? (
                 <div className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-                  还没有提取到 INSIGHT。
+                  {t(language, "noInsight")}
                 </div>
               ) : (
                 <div className="grid gap-2">
@@ -251,7 +254,7 @@ export default function IdeaSocraticPage() {
                   <SummaryItem label="Significance" value={summary.significance} />
                 </div>
               ) : (
-                <div className="text-xs text-muted-foreground">收敛后或手动点击生成 Summary。</div>
+                <div className="text-xs text-muted-foreground">{t(language, "socraticSummaryHint")}</div>
               )}
             </section>
           </aside>

@@ -140,10 +140,11 @@ export default function KnowledgeBasePage() {
 
   return (
     <div className="flex h-full flex-col gap-6">
-      <div>
+      <section className="relative overflow-hidden rounded-lg border border-border bg-card p-5 shadow-sm">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyan-400 via-violet-500 to-amber-300" />
         <h1 className="text-2xl font-bold">{t(language, "knowledgeTitle")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">{t(language, "knowledgeSubtitle")}</p>
-      </div>
+      </section>
 
       <div className="flex gap-3">
         <input

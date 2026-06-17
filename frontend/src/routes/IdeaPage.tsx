@@ -14,6 +14,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
 import { api, type Paper } from "../lib/api";
+import { t } from "../i18n";
+import { useSettingsStore } from "../stores/settingsStore";
 
 type IdeaMode = "gap_analysis" | "cross_domain" | "trend_based";
 type GenerationPhase = "generating" | "evaluating" | "done";
@@ -48,6 +50,7 @@ export default function IdeaPage() {
   const [streamStatus, setStreamStatus] = useState("");
   const [content, setContent] = useState("");
   const [evaluations, setEvaluations] = useState<Record<string, Evaluation>>({});
+  const language = useSettingsStore((s) => s.language);
 
   useEffect(() => {
     api
@@ -142,7 +145,7 @@ export default function IdeaPage() {
         }
       }
     } catch (error) {
-      setContent(`生成失败：${error}`);
+      setContent(`${t(language, "generateFailed")}: ${error}`);
       setPhase("done");
     } finally {
       setGenerating(false);
@@ -158,9 +161,9 @@ export default function IdeaPage() {
               <Sparkles size={14} />
               Research Ideation
             </div>
-            <h1 className="mt-2 text-3xl font-semibold">Idea 生成</h1>
+            <h1 className="mt-2 text-3xl font-semibold">{t(language, "ideaTitle")}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              从已导入论文中识别研究 Gap、跨领域迁移机会和趋势方向。
+              {t(language, "ideaSubtitle")}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -169,7 +172,7 @@ export default function IdeaPage() {
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border px-4 text-sm font-medium hover:bg-muted"
             >
               <BrainCircuit size={17} />
-              引导式 Idea 生成
+              {t(language, "guidedIdeaGen")}
             </button>
             <button
               onClick={generateIdeas}
@@ -177,7 +180,7 @@ export default function IdeaPage() {
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-foreground px-4 text-sm font-medium text-background disabled:opacity-50"
             >
               {generating ? <Loader2 size={17} className="animate-spin" /> : <FlaskConical size={17} />}
-              {generating ? "生成中" : "生成 Idea"}
+              {t(language, generating ? "generatingIdeas" : "generateIdea")}
             </button>
           </div>
         </div>
@@ -186,7 +189,7 @@ export default function IdeaPage() {
       <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
         <aside className="flex min-h-0 flex-col gap-4 overflow-hidden">
           <section className="rounded-lg border border-border bg-card p-4">
-            <div className="mb-3 text-sm font-medium">生成模式</div>
+            <div className="mb-3 text-sm font-medium">{t(language, "ideaMode")}</div>
             <div className="grid gap-2">
               {MODES.map(({ id, label, icon: Icon }) => (
                 <button
@@ -210,13 +213,13 @@ export default function IdeaPage() {
                 <input
                   value={domainA}
                   onChange={(e) => setDomainA(e.target.value)}
-                  placeholder="领域 A，例如：强化学习"
+                  placeholder={t(language, "ideaDomainA")}
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
                 <input
                   value={domainB}
                   onChange={(e) => setDomainB(e.target.value)}
-                  placeholder="领域 B，例如：大模型 Agent"
+                  placeholder={t(language, "ideaDomainB")}
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
@@ -225,7 +228,7 @@ export default function IdeaPage() {
             <textarea
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
-              placeholder="可选：补充你的研究偏好、约束或目标会议"
+              placeholder={t(language, "ideaPrefPlaceholder")}
               className="mt-3 h-24 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </section>
@@ -233,8 +236,8 @@ export default function IdeaPage() {
           <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
             <div className="border-b border-border p-3">
               <div className="mb-2 flex items-center justify-between text-sm font-medium">
-                选择上下文论文
-                <span className="text-xs text-muted-foreground">{selectedIds.size} 已选</span>
+                {t(language, "selectContextPapers")}
+                <span className="text-xs text-muted-foreground">{selectedIds.size} {t(language, "selectedCount")}</span>
               </div>
               <div className="relative">
                 <Search
@@ -244,7 +247,7 @@ export default function IdeaPage() {
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="筛选论文"
+                  placeholder={t(language, "filterPapers")}
                   className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
@@ -280,7 +283,7 @@ export default function IdeaPage() {
               })}
               {filteredPapers.length === 0 && (
                 <div className="py-8 text-center text-sm text-muted-foreground">
-                  没有可用论文。先在检索页导入论文。
+                  {t(language, "noPapersForIdea")}
                 </div>
               )}
             </div>
@@ -289,9 +292,9 @@ export default function IdeaPage() {
 
         <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <div className="text-sm font-medium">生成结果</div>
+            <div className="text-sm font-medium">{t(language, "ideaGenResult")}</div>
             <div className="text-xs text-muted-foreground">
-              {phase === "evaluating" ? "独立评估中" : `${ideaCards.length || 0} ideas`}
+              {phase === "evaluating" ? t(language, "evaluating") : `${ideaCards.length || 0} ${t(language, "ideas")}`}
             </div>
           </div>
           <div className="h-full overflow-auto p-4">
@@ -302,7 +305,7 @@ export default function IdeaPage() {
             )}
             {!content && !generating && (
               <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
-                选择论文和模式后生成研究 Idea。
+                {t(language, "generateIdeaHint")}
               </div>
             )}
 
@@ -322,7 +325,7 @@ export default function IdeaPage() {
                       ) : phase === "evaluating" ? (
                         <div className="mt-4 inline-flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                           <Loader2 size={13} className="animate-spin" />
-                          等待独立评估
+                          {t(language, "waitingEvaluation")}
                         </div>
                       ) : null}
                     </article>
