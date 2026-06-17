@@ -94,6 +94,20 @@ class ReviewRequest(BaseModel):
     language: str = "en"
 
 
+class IdeaRequest(BaseModel):
+    project_id: str
+    paper_ids: list[str] = Field(default_factory=list)
+    mode: str = "gap_analysis"  # gap_analysis / cross_domain / trend_based
+    custom_prompt: str = ""
+    domain_a: str = ""
+    domain_b: str = ""
+
+
+class IdeaEvaluateRequest(BaseModel):
+    idea: str
+    context_paper_ids: list[str] = Field(default_factory=list)
+
+
 # ── Knowledge ────────────────────────────────────
 class KnowledgeQuery(BaseModel):
     project_id: str

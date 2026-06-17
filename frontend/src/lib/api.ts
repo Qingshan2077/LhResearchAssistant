@@ -74,6 +74,7 @@ export type GraphData = {
     target: string;
     type: string;
     label?: string;
+    data?: Record<string, unknown>;
   }>;
 };
 

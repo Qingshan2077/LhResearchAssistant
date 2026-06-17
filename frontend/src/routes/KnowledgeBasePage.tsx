@@ -3,6 +3,7 @@ import { useKnowledgeStore } from "../stores/knowledgeStore";
 import { useNavigate } from "react-router-dom";
 import { Network, Search as SearchIcon, Loader2, BookOpen } from "lucide-react";
 import cytoscape from "cytoscape";
+import { ChatPanel } from "../components/ChatPanel";
 
 export default function KnowledgeBasePage() {
   const navigate = useNavigate();
@@ -57,8 +58,8 @@ export default function KnowledgeBasePage() {
           selector: ".paper",
           style: {
             "background-color": "#3b82f6",
-            width: 34,
-            height: 34,
+            width: "mapData(citation_count, 0, 5000, 30, 68)",
+            height: "mapData(citation_count, 0, 5000, 30, 68)",
             "border-color": "#93c5fd",
             "border-width": 2,
           },
@@ -83,6 +84,22 @@ export default function KnowledgeBasePage() {
           },
         },
         {
+          selector: "edge[type = 'cites']",
+          style: { "line-color": "#3b82f6", "target-arrow-color": "#3b82f6" },
+        },
+        {
+          selector: "edge[type = 'extends']",
+          style: { "line-color": "#22c55e", "target-arrow-color": "#22c55e" },
+        },
+        {
+          selector: "edge[type = 'conflicts'], edge[type = 'conflicts_with']",
+          style: { "line-color": "#ef4444", "target-arrow-color": "#ef4444" },
+        },
+        {
+          selector: "edge[type = 'compared_to']",
+          style: { "line-color": "#a855f7", "target-arrow-color": "#a855f7" },
+        },
+        {
           selector: "node:selected",
           style: {
             "border-color": "#22d3ee",
@@ -104,6 +121,17 @@ export default function KnowledgeBasePage() {
       if (nodeId.startsWith("paper:")) {
         navigate(`/papers/${nodeId.replace("paper:", "")}`);
       }
+    });
+    cy.on("mouseover", "edge", (event) => {
+      const edge = event.target;
+      edge.style("label", edge.data("label") || edge.data("type"));
+      edge.style("font-size", 9);
+      edge.style("text-background-color", "hsl(222.2 84% 4.9%)");
+      edge.style("text-background-opacity", 0.85);
+      edge.style("text-background-padding", 2);
+    });
+    cy.on("mouseout", "edge", (event) => {
+      event.target.style("label", "");
     });
 
     return () => {
@@ -176,23 +204,28 @@ export default function KnowledgeBasePage() {
         </div>
 
         {/* 搜索结果 */}
-        <div className="w-[400px] border border-border rounded-lg overflow-hidden flex flex-col shrink-0">
-          <div className="px-4 py-2.5 border-b border-border bg-muted/30 text-sm font-medium">
-            搜索结果
-          </div>
-          <div className="flex-1 overflow-auto p-4">
-            {queryResult ? (
-              <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                {queryResult}
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                <div className="text-center">
-                  <BookOpen size={32} className="mx-auto mb-2 opacity-30" />
-                  搜索知识库内容
+        <div className="flex w-[400px] shrink-0 flex-col gap-4">
+          <div className="min-h-0 flex flex-1 flex-col overflow-hidden rounded-lg border border-border">
+            <div className="px-4 py-2.5 border-b border-border bg-muted/30 text-sm font-medium">
+              搜索结果
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {queryResult ? (
+                <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                  {queryResult}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                  <div className="text-center">
+                    <BookOpen size={32} className="mx-auto mb-2 opacity-30" />
+                    搜索知识库内容
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="min-h-[320px] flex-1">
+            <ChatPanel defaultOpen />
           </div>
         </div>
       </div>

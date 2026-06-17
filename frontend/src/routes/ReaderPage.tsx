@@ -2,7 +2,18 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { api, type Paper } from "../lib/api";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
-import { ArrowLeft, Download, FileText, Brain, MessageSquare, BookOpen } from "lucide-react";
+import {
+  ArrowLeft,
+  Bot,
+  Brain,
+  BookOpen,
+  Download,
+  FileText,
+  MessageSquare,
+  Plus,
+  Save,
+  Trash2,
+} from "lucide-react";
 import ReactFlow, {
   Background,
   Controls,
@@ -12,6 +23,7 @@ import ReactFlow, {
   useNodesState,
 } from "reactflow";
 import "reactflow/dist/style.css";
+import { ChatPanel } from "../components/ChatPanel";
 
 type Tab = "structure" | "mindmap" | "notes" | "chat";
 
@@ -26,6 +38,7 @@ export default function ReaderPage() {
 
   const mindmapData = useKnowledgeStore((s) => s.mindmapData);
   const fetchMindMap = useKnowledgeStore((s) => s.fetchMindMap);
+  const saveMindMap = useKnowledgeStore((s) => s.saveMindMap);
 
   useEffect(() => {
     if (!id) return;
@@ -175,6 +188,7 @@ export default function ReaderPage() {
               { key: "structure", label: "结构化", icon: Brain },
               { key: "mindmap", label: "思维图", icon: BookOpen },
               { key: "notes", label: "笔记", icon: MessageSquare },
+              { key: "chat", label: "对话", icon: Bot },
             ] as const).map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
@@ -258,7 +272,11 @@ export default function ReaderPage() {
             {activeTab === "mindmap" && (
               <div className="h-full">
                 {mindmapData[id!] ? (
-                  <MindMapView nodes={mindmapData[id!].nodes} />
+                  <MindMapView
+                    paperId={id!}
+                    nodes={mindmapData[id!].nodes}
+                    onSave={(nextNodes) => saveMindMap(id!, nextNodes)}
+                  />
                 ) : (
                   <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
                     {parsing ? "生成中…" : "解析论文后生成思维图"}
@@ -283,6 +301,15 @@ export default function ReaderPage() {
                 </button>
               </div>
             )}
+
+            {activeTab === "chat" && (
+              <div className="flex h-full min-h-[420px]">
+                <ChatPanel
+                  paperContext={{ title: paper.title, abstract: paper.abstract }}
+                  defaultOpen
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -301,6 +328,7 @@ function Section({ title, content }: { title: string; content: string }) {
 
 type MindMapNode = {
   id: string;
+  paper_id?: string;
   label: string;
   node_type: string;
   content: string;
@@ -308,10 +336,26 @@ type MindMapNode = {
   parent_id: string | null;
 };
 
-function MindMapView({ nodes }: { nodes: MindMapNode[] }) {
+type MindMapContextMenu = {
+  nodeId: string;
+  x: number;
+  y: number;
+} | null;
+
+function MindMapView({
+  paperId,
+  nodes,
+  onSave,
+}: {
+  paperId: string;
+  nodes: MindMapNode[];
+  onSave: (nodes: MindMapNode[]) => Promise<void>;
+}) {
   const { flowNodes, flowEdges } = useMemo(() => toFlowElements(nodes), [nodes]);
   const [reactFlowNodes, setReactFlowNodes, onNodesChange] = useNodesState(flowNodes);
   const [reactFlowEdges, setReactFlowEdges, onEdgesChange] = useEdgesState(flowEdges);
+  const [contextMenu, setContextMenu] = useState<MindMapContextMenu>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setReactFlowNodes(flowNodes);
@@ -322,14 +366,154 @@ function MindMapView({ nodes }: { nodes: MindMapNode[] }) {
     return <div className="text-muted-foreground text-sm">Empty mind map</div>;
   }
 
+  const updateNodeData = (nodeId: string, patch: Partial<MindMapNode>) => {
+    setReactFlowNodes((current) =>
+      current.map((node) => {
+        if (node.id !== nodeId) return node;
+        const nextData = {
+          ...node.data,
+          labelText: patch.label ?? node.data.labelText,
+          content: patch.content ?? node.data.content,
+          node_type: patch.node_type ?? node.data.node_type,
+          parent_id: patch.parent_id ?? node.data.parent_id,
+        };
+        return {
+          ...node,
+          data: {
+            ...nextData,
+            label: renderFlowLabel(nextData.labelText, nextData.content),
+          },
+          style: {
+            ...node.style,
+            ...nodeTypeStyle(nextData.node_type),
+          },
+        };
+      })
+    );
+  };
+
+  const editNode = (nodeId: string) => {
+    const node = reactFlowNodes.find((item) => item.id === nodeId);
+    if (!node) return;
+
+    const label = window.prompt("节点标题", String(node.data.labelText || ""));
+    if (label === null) return;
+    const content = window.prompt("节点内容", String(node.data.content || ""));
+    if (content === null) return;
+
+    updateNodeData(nodeId, { label, content });
+  };
+
+  const addChild = (nodeId: string) => {
+    const parent = reactFlowNodes.find((item) => item.id === nodeId);
+    if (!parent) return;
+
+    const childId = `manual-${Date.now()}`;
+    const child: Node = {
+      id: childId,
+      position: {
+        x: parent.position.x + 220,
+        y: parent.position.y + 80,
+      },
+      data: {
+        labelText: "New Node",
+        content: "",
+        node_type: "other",
+        parent_id: nodeId,
+        label: renderFlowLabel("New Node", ""),
+      },
+      style: baseNodeStyle("other"),
+    };
+
+    setReactFlowNodes((current) => [...current, child]);
+    setReactFlowEdges((current) => [
+      ...current,
+      {
+        id: `${nodeId}->${childId}`,
+        source: nodeId,
+        target: childId,
+        type: "smoothstep",
+        style: { stroke: "hsl(215 20.2% 65.1%)" },
+      },
+    ]);
+    setContextMenu(null);
+  };
+
+  const deleteNode = (nodeId: string) => {
+    const removeIds = new Set([nodeId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const node of reactFlowNodes) {
+        if (removeIds.has(String(node.data.parent_id)) && !removeIds.has(node.id)) {
+          removeIds.add(node.id);
+          changed = true;
+        }
+      }
+    }
+
+    setReactFlowNodes((current) => current.filter((node) => !removeIds.has(node.id)));
+    setReactFlowEdges((current) =>
+      current.filter((edge) => !removeIds.has(edge.source) && !removeIds.has(edge.target))
+    );
+    setContextMenu(null);
+  };
+
+  const changeType = (nodeId: string) => {
+    const node = reactFlowNodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    const nextType = window.prompt(
+      "节点类型",
+      String(node.data.node_type || "other")
+    );
+    if (!nextType) return;
+    updateNodeData(nodeId, { node_type: nextType });
+    setContextMenu(null);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onSave(
+        reactFlowNodes.map((node) => ({
+          id: node.id,
+          paper_id: paperId,
+          parent_id: String(node.data.parent_id || "") || null,
+          label: String(node.data.labelText || ""),
+          node_type: String(node.data.node_type || "other"),
+          content: String(node.data.content || ""),
+          position: node.position,
+        }))
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="h-full min-h-[420px] overflow-hidden rounded-lg border border-border bg-background">
+    <div className="relative h-full min-h-[420px] overflow-hidden rounded-lg border border-border bg-background">
+      <div className="absolute right-2 top-2 z-10">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-xs text-primary-foreground shadow disabled:opacity-50"
+        >
+          <Save size={13} />
+          {saving ? "保存中" : "保存"}
+        </button>
+      </div>
       <ReactFlow
         key={nodes.map((node) => node.id).join(":")}
         nodes={reactFlowNodes}
         edges={reactFlowEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeDoubleClick={(_, node) => editNode(node.id)}
+        onNodeContextMenu={(event, node) => {
+          event.preventDefault();
+          setContextMenu({ nodeId: node.id, x: event.clientX, y: event.clientY });
+        }}
+        onPaneClick={() => setContextMenu(null)}
         fitView
         nodesDraggable
         panOnDrag
@@ -337,44 +521,51 @@ function MindMapView({ nodes }: { nodes: MindMapNode[] }) {
         <Background gap={16} color="hsl(215 20.2% 65.1% / 0.22)" />
         <Controls />
       </ReactFlow>
+
+      {contextMenu && (
+        <div
+          className="fixed z-50 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={() => addChild(contextMenu.nodeId)}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted"
+          >
+            <Plus size={13} />
+            添加子节点
+          </button>
+          <button
+            onClick={() => changeType(contextMenu.nodeId)}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted"
+          >
+            <BookOpen size={13} />
+            修改类型
+          </button>
+          <button
+            onClick={() => deleteNode(contextMenu.nodeId)}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-destructive hover:bg-muted"
+          >
+            <Trash2 size={13} />
+            删除节点
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 function toFlowElements(nodes: MindMapNode[]): { flowNodes: Node[]; flowEdges: Edge[] } {
-  const typeStyles: Record<string, CSSProperties> = {
-    root: { borderColor: "#60a5fa", background: "rgba(59, 130, 246, 0.14)" },
-    problem: { borderColor: "#f87171", background: "rgba(239, 68, 68, 0.12)" },
-    method: { borderColor: "#38bdf8", background: "rgba(14, 165, 233, 0.12)" },
-    sub_method: { borderColor: "#22d3ee", background: "rgba(34, 211, 238, 0.12)" },
-    experiment: { borderColor: "#34d399", background: "rgba(16, 185, 129, 0.12)" },
-    conclusion: { borderColor: "#a78bfa", background: "rgba(139, 92, 246, 0.12)" },
-  };
-
   const flowNodes = nodes.map<Node>((node) => ({
     id: node.id,
     position: node.position,
     data: {
-      label: (
-        <div title={node.content} className="max-w-[180px]">
-          <div className="text-xs font-semibold">{node.label}</div>
-          {node.content && (
-            <div className="mt-1 line-clamp-2 text-[10px] text-muted-foreground">
-              {node.content}
-            </div>
-          )}
-        </div>
-      ),
+      labelText: node.label,
+      content: node.content,
+      node_type: node.node_type,
+      parent_id: node.parent_id,
+      label: renderFlowLabel(node.label, node.content),
     },
-    style: {
-      width: 190,
-      borderRadius: 8,
-      border: "1px solid var(--color-border)",
-      color: "var(--color-foreground)",
-      fontSize: 12,
-      padding: 8,
-      ...(typeStyles[node.node_type] || {}),
-    },
+    style: baseNodeStyle(node.node_type),
   }));
 
   const flowEdges = nodes
@@ -389,4 +580,42 @@ function toFlowElements(nodes: MindMapNode[]): { flowNodes: Node[]; flowEdges: E
     }));
 
   return { flowNodes, flowEdges };
+}
+
+function nodeTypeStyle(nodeType: string): CSSProperties {
+  const typeStyles: Record<string, CSSProperties> = {
+    root: { borderColor: "#60a5fa", background: "rgba(59, 130, 246, 0.14)" },
+    problem: { borderColor: "#f87171", background: "rgba(239, 68, 68, 0.12)" },
+    method: { borderColor: "#38bdf8", background: "rgba(14, 165, 233, 0.12)" },
+    sub_method: { borderColor: "#22d3ee", background: "rgba(34, 211, 238, 0.12)" },
+    experiment: { borderColor: "#34d399", background: "rgba(16, 185, 129, 0.12)" },
+    conclusion: { borderColor: "#a78bfa", background: "rgba(139, 92, 246, 0.12)" },
+  };
+
+  return typeStyles[nodeType] || {};
+}
+
+function baseNodeStyle(nodeType: string): CSSProperties {
+  return {
+    width: 190,
+    borderRadius: 8,
+    border: "1px solid var(--color-border)",
+    color: "var(--color-foreground)",
+    fontSize: 12,
+    padding: 8,
+    ...nodeTypeStyle(nodeType),
+  };
+}
+
+function renderFlowLabel(label: string, content: string) {
+  return (
+    <div title={content} className="max-w-[180px]">
+      <div className="text-xs font-semibold">{label}</div>
+      {content && (
+        <div className="mt-1 line-clamp-2 text-[10px] text-muted-foreground">
+          {content}
+        </div>
+      )}
+    </div>
+  );
 }

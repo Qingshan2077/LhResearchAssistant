@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 from app.database import get_db
-from app.database.sqlite import Paper, MindMapNode
+from app.database.sqlite import Paper, MindMapNode, PaperRelation
 from app.models import KnowledgeQuery, GraphData, MindMapData, MindMapUpdate
 
 router = APIRouter()
@@ -87,6 +87,28 @@ def get_knowledge_graph(project_id: str | None = None, db: Session = Depends(get
                 "source": f"paper:{paper.id}",
                 "target": kw_id,
                 "type": "has_concept",
+            })
+
+    paper_ids = [paper.id for paper in papers]
+    if paper_ids:
+        relations = (
+            db.query(PaperRelation)
+            .filter(PaperRelation.source_paper_id.in_(paper_ids))
+            .all()
+        )
+        visible_paper_ids = set(paper_ids)
+        for rel in relations:
+            if rel.target_paper_id not in visible_paper_ids:
+                continue
+            edges.append({
+                "source": f"paper:{rel.source_paper_id}",
+                "target": f"paper:{rel.target_paper_id}",
+                "type": rel.relation_type,
+                "label": rel.relation_type,
+                "data": {
+                    "description": rel.description,
+                    "confidence": rel.confidence,
+                },
             })
 
     return GraphData(nodes=nodes, edges=edges)
