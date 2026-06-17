@@ -144,25 +144,24 @@ export default function KnowledgeBasePage() {
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyan-400 via-violet-500 to-amber-300" />
         <h1 className="text-2xl font-bold">{t(language, "knowledgeTitle")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">{t(language, "knowledgeSubtitle")}</p>
+        <div className="mt-4 flex gap-3">
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleQuery()}
+            placeholder={t(language, "searchKnowledgePlaceholder")}
+            className="flex-1 rounded-lg border border-input bg-background px-4 py-2.5 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button
+            onClick={handleQuery}
+            disabled={querying || !searchInput.trim()}
+            className="rounded-lg bg-primary px-6 py-2.5 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+          >
+            {querying ? <Loader2 size={16} className="animate-spin" /> : <SearchIcon size={16} />}
+          </button>
+        </div>
       </section>
-
-      <div className="flex gap-3">
-        <input
-          type="text"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleQuery()}
-          placeholder={t(language, "searchKnowledgePlaceholder")}
-          className="flex-1 rounded-lg border border-input bg-background px-4 py-2.5 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-        />
-        <button
-          onClick={handleQuery}
-          disabled={querying || !searchInput.trim()}
-          className="rounded-lg bg-primary px-6 py-2.5 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-        >
-          {querying ? <Loader2 size={16} className="animate-spin" /> : <SearchIcon size={16} />}
-        </button>
-      </div>
 
       <div className="flex min-h-0 flex-1 gap-6">
         <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
