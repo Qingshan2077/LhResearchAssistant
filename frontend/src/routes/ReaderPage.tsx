@@ -342,6 +342,12 @@ type MindMapContextMenu = {
   y: number;
 } | null;
 
+type MindMapEditState = {
+  nodeId: string;
+  label: string;
+  content: string;
+} | null;
+
 function MindMapView({
   paperId,
   nodes,
@@ -355,6 +361,7 @@ function MindMapView({
   const [reactFlowNodes, setReactFlowNodes, onNodesChange] = useNodesState(flowNodes);
   const [reactFlowEdges, setReactFlowEdges, onEdgesChange] = useEdgesState(flowEdges);
   const [contextMenu, setContextMenu] = useState<MindMapContextMenu>(null);
+  const [editing, setEditing] = useState<MindMapEditState>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -395,13 +402,11 @@ function MindMapView({
   const editNode = (nodeId: string) => {
     const node = reactFlowNodes.find((item) => item.id === nodeId);
     if (!node) return;
-
-    const label = window.prompt("节点标题", String(node.data.labelText || ""));
-    if (label === null) return;
-    const content = window.prompt("节点内容", String(node.data.content || ""));
-    if (content === null) return;
-
-    updateNodeData(nodeId, { label, content });
+    setEditing({
+      nodeId,
+      label: String(node.data.labelText || ""),
+      content: String(node.data.content || ""),
+    });
   };
 
   const addChild = (nodeId: string) => {
@@ -548,6 +553,44 @@ function MindMapView({
             <Trash2 size={13} />
             删除节点
           </button>
+        </div>
+      )}
+
+      {editing && (
+        <div className="absolute inset-x-3 bottom-3 z-20 rounded-lg border border-border bg-card p-3 shadow-xl">
+          <div className="mb-2 text-xs font-medium">编辑节点</div>
+          <input
+            value={editing.label}
+            onChange={(e) => setEditing((prev) => prev ? { ...prev, label: e.target.value } : prev)}
+            className="mb-2 h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            placeholder="节点标题"
+          />
+          <textarea
+            value={editing.content}
+            onChange={(e) => setEditing((prev) => prev ? { ...prev, content: e.target.value } : prev)}
+            className="h-24 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            placeholder="节点内容"
+          />
+          <div className="mt-2 flex justify-end gap-2">
+            <button
+              onClick={() => setEditing(null)}
+              className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => {
+                updateNodeData(editing.nodeId, {
+                  label: editing.label,
+                  content: editing.content,
+                });
+                setEditing(null);
+              }}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground"
+            >
+              应用
+            </button>
+          </div>
         </div>
       )}
     </div>

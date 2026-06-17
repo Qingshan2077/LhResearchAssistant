@@ -5,7 +5,10 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 from app.database import get_db
+from app.database.chroma_client import collection
 from app.database.sqlite import Paper, MindMapNode, PaperRelation
+from app.llm import ChatMessage
+from app.llm.router import get_active_provider
 from app.models import KnowledgeQuery, GraphData, MindMapData, MindMapUpdate
 
 router = APIRouter()
@@ -13,32 +16,64 @@ router = APIRouter()
 
 @router.post("/knowledge/query")
 async def knowledge_query(req: KnowledgeQuery, db: Session = Depends(get_db)):
-    """知识库语义搜索（SSE 流式返回 LLM 回答）"""
-    # Phase 1 最小实现：基于 SQLite LIKE 搜索论文标题和摘要
-    # Phase 2/7 将接入 Chroma 向量搜索
-    search_term = f"%{req.query}%"
-    papers = (
-        db.query(Paper)
-        .filter(
-            Paper.project_id == req.project_id,
-            (Paper.title.contains(req.query)) | (Paper.abstract.contains(req.query)),
+    """知识库语义搜索：优先使用 Chroma，失败时回退到 SQLite LIKE。"""
+    chunks: list[str] = []
+    metadatas: list[dict] = []
+    papers: list[Paper] = []
+
+    try:
+        results = collection.query(query_texts=[req.query], n_results=req.top_k)
+        chunks = results.get("documents", [[]])[0] or []
+        metadatas = results.get("metadatas", [[]])[0] or []
+        paper_ids = []
+        for metadata in metadatas:
+            paper_id = metadata.get("paper_id")
+            if paper_id and paper_id not in paper_ids:
+                paper_ids.append(paper_id)
+        if paper_ids:
+            papers = (
+                db.query(Paper)
+                .filter(Paper.project_id == req.project_id, Paper.id.in_(paper_ids))
+                .all()
+            )
+    except Exception:
+        papers = []
+
+    if not papers:
+        papers = (
+            db.query(Paper)
+            .filter(
+                Paper.project_id == req.project_id,
+                (Paper.title.contains(req.query)) | (Paper.abstract.contains(req.query)),
+            )
+            .limit(req.top_k)
+            .all()
         )
-        .limit(req.top_k)
-        .all()
-    )
+        chunks = [f"Title: {p.title}\nAbstract: {p.abstract[:800]}" for p in papers]
+        metadatas = [{"paper_id": p.id, "chunk_index": 0} for p in papers]
 
     if not papers:
         return {"answer": "No relevant papers found in the knowledge base.", "sources": []}
 
     sources = [{"paper_id": p.id, "title": p.title, "relevance": 1.0} for p in papers]
-
-    # 简单拼接上下文返回
     context = "\n\n".join([
-        f"Title: {p.title}\nAbstract: {p.abstract[:500]}" for p in papers
+        f"[Chunk {i + 1}] paper_id={m.get('paper_id')}\n{chunk}"
+        for i, (chunk, m) in enumerate(zip(chunks, metadatas))
     ])
 
+    answer = f"Found {len(papers)} relevant papers in your knowledge base."
+    if req.include_graph_context:
+        try:
+            provider, config = get_active_provider(db)
+            answer = await provider.chat([
+                ChatMessage(role="system", content="Answer using only the retrieved paper context. Cite source paper titles when possible."),
+                ChatMessage(role="user", content=f"Question: {req.query}\n\nRetrieved context:\n{context}"),
+            ], config)
+        except Exception:
+            pass
+
     return {
-        "answer": f"Found {len(papers)} relevant papers in your knowledge base.",
+        "answer": answer,
         "sources": sources,
         "context": context,
     }

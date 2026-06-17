@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     chroma_dir: str = "./data/chroma_db"
     db_path: str = "./data/papers.db"
     papers_cache_dir: str = "./data/papers_cache"
+    writing_projects_dir: str = "./data/writing_projects"
     graphml_path: str = "./data/knowledge_graph.graphml"
 
     # CORS
@@ -34,3 +35,4 @@ settings = Settings()
 Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
 Path(settings.chroma_dir).mkdir(parents=True, exist_ok=True)
 Path(settings.papers_cache_dir).mkdir(parents=True, exist_ok=True)
+Path(settings.writing_projects_dir).mkdir(parents=True, exist_ok=True)

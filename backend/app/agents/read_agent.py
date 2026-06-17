@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database.sqlite import Paper, MindMapNode
 from app.services.pdf_parser import PDFParser
+from app.database.chroma_client import index_paper_chunks
 from app.llm.router import get_active_provider
 from app.llm import ChatMessage
 
@@ -49,12 +50,13 @@ async def parse_paper_structure(paper: Paper, db: Session) -> AsyncGenerator[dic
         return
 
     try:
-        text = PDFParser.extract_text_fast(pdf_path)
+        full_text = PDFParser.extract_text_fast(pdf_path)
     except Exception as e:
         yield {"type": "error", "message": f"PDF extraction failed: {str(e)}"}
         return
 
     # 截断长文本（LLM 上下文限制）
+    text = full_text
     max_chars = 60000  # ~15K tokens
     if len(text) > max_chars:
         text = text[:max_chars] + "\n\n[...truncated...]"
@@ -103,7 +105,14 @@ async def parse_paper_structure(paper: Paper, db: Session) -> AsyncGenerator[dic
 
     yield {"type": "result", "extracted_data": extracted}
 
-    # Step 5: 生成思维图节点
+    # Step 5: 向量化写入 Chroma
+    try:
+        chunk_count = index_paper_chunks(paper.id, full_text)
+        yield {"type": "progress", "phase": "chroma_indexed", "chunks": chunk_count}
+    except Exception as e:
+        yield {"type": "warning", "phase": "chroma_index_failed", "message": str(e)}
+
+    # Step 6: 生成思维图节点
     try:
         _generate_mindmap_nodes(paper, extracted, db)
         yield {"type": "progress", "phase": "mindmap_generated", "paper_id": paper.id}

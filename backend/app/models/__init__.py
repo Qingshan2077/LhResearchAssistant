@@ -129,6 +129,41 @@ class MindMapUpdate(BaseModel):
     nodes: list[dict]
 
 
+# ── Writing ──────────────────────────────────────
+class WritingProjectCreate(BaseModel):
+    project_id: str = "default"
+    title: str
+    target_venue: str = ""
+    language: str = "en"
+    template: str = "neurips_2024"
+    author: str = ""
+
+
+class WritingProjectUpdate(BaseModel):
+    title: Optional[str] = None
+    target_venue: Optional[str] = None
+    language: Optional[str] = None
+    template: Optional[str] = None
+    external_editor_path: Optional[str] = None
+    outline: Optional[list[dict]] = None
+
+
+class WritingProjectResponse(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    target_venue: str = ""
+    language: str = "en"
+    template: str = ""
+    external_editor_path: str = ""
+    outline: list[dict] = Field(default_factory=list)
+    latex_project_path: str = ""
+    files: list[dict] = Field(default_factory=list)
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 # ── LLM Provider ─────────────────────────────────
 class ProviderCreate(BaseModel):
     name: str
