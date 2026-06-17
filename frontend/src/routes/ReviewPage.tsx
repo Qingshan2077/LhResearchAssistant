@@ -74,7 +74,21 @@ type MetaReview = {
   action_items: string[];
 };
 
-type TabKey = "venue" | "format" | "simulate" | "letters";
+type FailureMode = {
+  mode: number;
+  name: string;
+  status: "clear" | "suspected" | "insufficient_evidence";
+  reasoning: string;
+  action_required: boolean;
+};
+
+type FailureChecklistResult = {
+  modes: FailureMode[];
+  blocking: boolean;
+  summary: string;
+};
+
+type TabKey = "venue" | "format" | "simulate" | "letters" | "checklist";
 
 const FORMAT_VENUES = [
   { value: "neurips_2024", label: "NeurIPS 2024" },
@@ -88,6 +102,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: LucideIcon }> = [
   { key: "format", label: "格式检查", icon: FileCheck2 },
   { key: "simulate", label: "模拟审稿", icon: ClipboardCheck },
   { key: "letters", label: "信件生成", icon: Mail },
+  { key: "checklist", label: "失败检查", icon: AlertTriangle },
 ];
 
 export default function ReviewPage() {
@@ -120,6 +135,9 @@ export default function ReviewPage() {
   const [reviewText, setReviewText] = useState("");
   const [rebuttal, setRebuttal] = useState("");
   const [letterBusy, setLetterBusy] = useState<"cover" | "rebuttal" | null>(null);
+  const [checklistText, setChecklistText] = useState("");
+  const [checklistResult, setChecklistResult] = useState<FailureChecklistResult | null>(null);
+  const [checklistBusy, setChecklistBusy] = useState(false);
 
   useEffect(() => {
     api
@@ -264,6 +282,24 @@ export default function ReviewPage() {
       setRebuttal(resp.content);
     } finally {
       setLetterBusy(null);
+    }
+  };
+
+  const runChecklist = async () => {
+    if (!selectedProject && !checklistText.trim()) return;
+    setChecklistBusy(true);
+    try {
+      const resp = await api
+        .post("review/run-failure-checklist", {
+          json: {
+            writing_project_id: selectedProject?.id || "",
+            text: checklistText,
+          },
+        })
+        .json<FailureChecklistResult>();
+      setChecklistResult(resp);
+    } finally {
+      setChecklistBusy(false);
     }
   };
 
@@ -561,6 +597,39 @@ export default function ReviewPage() {
             </section>
           </div>
         )}
+
+        {activeTab === "checklist" && (
+          <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+            <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
+              <div className="flex items-center justify-between border-b border-border p-4">
+                <SectionTitle icon={AlertTriangle} title="7-mode AI Failure Checklist" />
+                <button
+                  onClick={runChecklist}
+                  disabled={checklistBusy || (!selectedProject && !checklistText.trim())}
+                  className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50"
+                >
+                  {checklistBusy ? <Loader2 size={15} className="animate-spin" /> : <ClipboardCheck size={15} />}
+                  运行检查
+                </button>
+              </div>
+              <textarea
+                value={checklistText}
+                onChange={(event) => setChecklistText(event.target.value)}
+                placeholder="可选：粘贴要检查的论文段落。留空时会读取当前写作项目 main.tex。"
+                className="min-h-0 flex-1 resize-none bg-background p-4 text-sm leading-6 outline-none"
+              />
+            </section>
+
+            <section className="min-h-0 overflow-auto rounded-lg border border-border bg-card p-4">
+              <SectionTitle icon={ShieldCheck} title="检查结果" />
+              {!checklistResult ? (
+                <EmptyState text="运行后会显示 7 个失败模式的状态、理由和是否阻塞。" />
+              ) : (
+                <FailureChecklistView result={checklistResult} />
+              )}
+            </section>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -719,6 +788,63 @@ function ReviewList({ title, items, tone }: { title: string; items: string[]; to
           <li key={index}>{item}</li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function FailureChecklistView({ result }: { result: FailureChecklistResult }) {
+  return (
+    <div className="mt-4 grid gap-4">
+      <div
+        className={clsx(
+          "rounded-lg border p-4",
+          result.blocking ? "border-destructive/40 bg-destructive/10" : "border-emerald-400/40 bg-emerald-400/10"
+        )}
+      >
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          {result.blocking ? <XCircle size={17} /> : <CheckCircle2 size={17} />}
+          {result.blocking ? "存在阻塞项" : "未发现阻塞项"}
+        </div>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">{result.summary}</p>
+      </div>
+
+      <div className="grid gap-3">
+        {result.modes.map((mode) => (
+          <div key={mode.mode} className="rounded-lg border border-border bg-background p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-semibold">
+                Mode {mode.mode}: {mode.name}
+              </div>
+              <span
+                className={clsx(
+                  "rounded px-2 py-0.5 text-xs",
+                  mode.status === "clear"
+                    ? "bg-emerald-400/15 text-emerald-600 dark:text-emerald-300"
+                    : mode.status === "suspected"
+                      ? "bg-destructive/15 text-destructive"
+                      : "bg-amber-400/15 text-amber-600 dark:text-amber-300"
+                )}
+              >
+                {mode.status}
+              </span>
+            </div>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{mode.reasoning}</p>
+            {mode.action_required && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">
+                  Confirm flag
+                </button>
+                <button className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">
+                  Override with reasoning
+                </button>
+                <button className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">
+                  Revise passage
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

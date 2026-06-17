@@ -58,6 +58,7 @@ def _paper_to_response(paper: Paper, is_new: bool = False) -> dict:
         "pdf_url": paper.pdf_url or "",
         "pdf_path": paper.pdf_path or "",
         "extracted_data": paper.extracted_data or {},
+        "citation_verified": paper.citation_verified or [],
         "tags": paper.tags or [],
         "notes": paper.notes or "",
         "read_status": paper.read_status or "unread",

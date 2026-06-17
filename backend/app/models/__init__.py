@@ -38,6 +38,7 @@ class PaperResponse(PaperBase):
     project_id: Optional[str] = None
     pdf_path: str = ""
     extracted_data: dict = {}
+    citation_verified: list[dict] = Field(default_factory=list)
     tags: list[str] = []
     notes: str = ""
     read_status: str = "unread"
@@ -106,6 +107,11 @@ class IdeaRequest(BaseModel):
 class IdeaEvaluateRequest(BaseModel):
     idea: str
     context_paper_ids: list[str] = Field(default_factory=list)
+
+
+class CreateSocraticRequest(BaseModel):
+    project_id: str = "default"
+    initial_message: str = ""
 
 
 # ── Knowledge ────────────────────────────────────
@@ -252,6 +258,34 @@ class RebuttalRequest(BaseModel):
     writing_project_id: str
     review_text: str
     response_style: str = "detailed"  # detailed / concise
+
+
+class CitationVerificationStatus(BaseModel):
+    total: int = 0
+    verified: int = 0
+    not_found: int = 0
+    ambiguous: int = 0
+    citations: list[dict] = Field(default_factory=list)
+
+
+class FailureChecklistRequest(BaseModel):
+    writing_project_id: str = ""
+    text: str = ""
+
+
+class FailureChecklistMode(BaseModel):
+    mode: int
+    name: str
+    status: str
+    reasoning: str = ""
+    action_required: bool = False
+
+
+class FailureChecklistResult(BaseModel):
+    modes: list[FailureChecklistMode]
+    blocking: bool = False
+    summary: str = ""
+    override_reasoning: str = ""
 
 
 # ── LLM Provider ─────────────────────────────────
