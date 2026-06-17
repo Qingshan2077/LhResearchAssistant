@@ -10,6 +10,31 @@ from app.database.sqlite import Paper
 from app.llm import ChatMessage, LLMConfig, LLMProvider
 
 
+_IDEA_PARSE_PROMPT = """\
+Parse the following research ideas Markdown text into a JSON array of idea objects.
+Each object must have: title (string), description (string), novelty (string),
+risks (string), first_experiment (string).
+If no clear ideas are found, return an empty array.
+
+Text to parse:
+{text}
+"""
+
+_EVALUATION_PROMPT = """\
+Evaluate each of the following research ideas independently.
+For each idea, assess novelty (1-5), feasibility (1-5), and cost (1-5).
+Provide a brief reasoning for each score.
+
+Return JSON array of objects with keys:
+idea_title, novelty, feasibility, cost, reasoning
+
+Do NOT let scores from one idea influence scores for another idea.
+
+Ideas:
+{ideas}
+"""
+
+
 def _paper_context(papers: list[Paper]) -> str:
     entries = []
     for index, paper in enumerate(papers, 1):
@@ -61,11 +86,10 @@ For each idea, provide:
 - Title
 - Short description
 - Why it is novel
-- Feasibility score from 1-5
-- Novelty score from 1-5
-- Cost score from 1-5
 - Main risks
 - First experiment to run
+
+Do NOT self-score or self-evaluate. Only generate the raw ideas.
 
 Return Markdown with one section per idea. Be specific and technically actionable.
 
@@ -134,15 +158,56 @@ async def generate_ideas(
         ChatMessage(role="user", content=prompt),
     ]
 
+    # Phase 1: Generate ideas (no self-scoring)
+    generated_text = ""
     try:
         async for token in provider.chat_stream(messages, config):
+            generated_text += token
             yield {"type": "chunk", "content": token}
     except Exception as exc:
         yield {"type": "error", "message": str(exc)}
-        yield {
-            "type": "chunk",
-            "content": "\n\n" + _fallback_ideas(mode, papers, domain_a=domain_a, domain_b=domain_b),
-        }
+        generated_text = _fallback_ideas(mode, papers, domain_a=domain_a, domain_b=domain_b)
+        yield {"type": "chunk", "content": generated_text}
+
+    yield {"type": "generation_done"}
+
+    # Phase 2: Evaluate generated ideas independently
+    try:
+        parsed_ideas = await provider.chat([
+            ChatMessage(role="system", content="You parse research ideas into structured data."),
+            ChatMessage(role="user", content=_IDEA_PARSE_PROMPT.format(text=generated_text)),
+        ], config)
+        ideas_list = json.loads(parsed_ideas) if parsed_ideas.strip().startswith("[") else []
+        if isinstance(parsed_ideas, str):
+            stripped = parsed_ideas.strip()
+            if stripped.startswith("```"):
+                stripped = stripped.strip("`").removeprefix("json").strip()
+            ideas_list = json.loads(stripped) if stripped else []
+    except Exception:
+        ideas_list = []
+
+    if ideas_list:
+        yield {"type": "status", "message": f"Beginning independent evaluation of {len(ideas_list)} ideas."}
+        ideas_json = "\n".join(
+            f"- **{i.get('title', 'Untitled')}**: {i.get('description', '')[:300]}"
+            for i in ideas_list
+        )
+        try:
+            evaluations_raw = await provider.chat([
+                ChatMessage(role="system", content="You evaluate research ideas independently. "
+                            "Each idea's scores must be independent of others."),
+                ChatMessage(role="user", content=_EVALUATION_PROMPT.format(ideas=ideas_json)),
+            ], config)
+            stripped = evaluations_raw.strip()
+            if stripped.startswith("```"):
+                stripped = stripped.strip("`").removeprefix("json").strip()
+            evaluations = json.loads(stripped) if stripped else []
+            for ev in evaluations:
+                yield {"type": "evaluation", "evaluation": ev}
+        except Exception:
+            yield {"type": "status", "message": "Idea evaluation failed — manual review advised."}
+    else:
+        yield {"type": "status", "message": "Could not parse generated ideas for evaluation. Scores were not in the generation (by design)."}
 
     yield {"type": "done"}
 

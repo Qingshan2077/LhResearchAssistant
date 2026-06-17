@@ -30,6 +30,76 @@ REVIEWER_ROLES = {
     ),
 }
 
+# ── Field-aware Dynamic Persona ─────────────────────
+FIELD_TEMPLATES: dict[str, dict[str, str]] = {
+    "ml_systems": {
+        "eic": "Editor-in-Chief at NeurIPS / ICML / JMLR, specializing in {subfield}",
+        "method": "Methodology expert in {subfield}, known for rigorous experimental design and ablation studies",
+        "domain": "Domain expert in {subfield} with 15+ years of experience in {subfield}",
+        "writing": "Senior area chair experienced at {venue}, attentive to claims, baselines, and significance",
+    },
+    "nlp": {
+        "eic": "Action Editor for ACL / EMNLP / NAACL, expertise in {subfield}",
+        "method": "NLP methodology reviewer focused on task design, evaluation metrics, and dataset construction",
+        "domain": "Domain expert in {subfield}, with deep knowledge of relevant benchmarks and prior work",
+        "writing": "ACL/EMNLP area chair, focused on framing, novelty, and contribution clarity",
+    },
+    "cv": {
+        "eic": "Associate Editor of TPAMI / IJCV, program chair at CVPR / ICCV, focus on {subfield}",
+        "method": "Computer vision methodologist, expert in experimental protocols and reproducibility in CV",
+        "domain": "Senior researcher in {subfield}, with publications at CVPR/ICCV/ECCV",
+        "writing": "CV area chair, attentive to claims vs. evidence, and comparisons with SOTA baselines",
+    },
+    "theory": {
+        "eic": "Editorial board member of SICOMP / FOCS / STOC, {subfield} expertise",
+        "method": "Theoretical computer scientist focused on proof correctness, assumptions, and lower bounds",
+        "domain": "Domain expert in {subfield}, well-versed in relevant theoretical frameworks",
+        "writing": "Theory area chair, focused on positioning, rigor, and relation to open problems",
+    },
+    "systems": {
+        "eic": "NSDI / SOSP / OSDI / EuroSys program committee member, {subfield} area",
+        "method": "Systems methodology reviewer, skilled at identifying confounding variables and measurement bias",
+        "domain": "Systems researcher in {subfield} with 10+ years of experience in production environments",
+        "writing": "Systems area chair, focused on claims, reproducibility, and real-world relevance",
+    },
+    "software_engineering": {
+        "eic": "ICSE / FSE / TSE editorial board, specialization in {subfield}",
+        "method": "SE methodology reviewer, expert in empirical study design, threats to validity, and statistical rigor",
+        "domain": "SE domain expert in {subfield}, with knowledge of relevant tools and industrial context",
+        "writing": "SE area chair, attentive to results, implications, and generalizability",
+    },
+    "default": {
+        "eic": "Q1 journal editor-in-chief with broad cross-disciplinary perspective",
+        "method": "Senior researcher known for rigorous methodology and attention to experimental detail",
+        "domain": "Domain expert in {subfield} with 15+ years of experience",
+        "writing": "Experienced area chair, focused on positioning, novelty, and venue fit",
+    },
+}
+
+
+_DYNAMIC_PERSONA_PROMPT = """Based on the paper metadata below, generate a field analysis and detailed reviewer personas.
+
+Paper title: {title}
+Target venue: {venue}
+Paper abstract (first 500 chars): {abstract}
+
+First, classify the paper into one of these categories:
+- ml_systems / nlp / cv / theory / systems / software_engineering / default
+
+Then, for each of the 4 reviewer roles (method, experiment, theory, writing),
+generate a 2-3 sentence role description with specific focus areas.
+
+Return JSON only with keys:
+- "subfield": str
+- "category": str
+- "personas": {{
+    "method": {{"role_desc": str, "focus_areas": list[str], "known_for": str}},
+    "experiment": {{"role_desc": str, "focus_areas": list[str], "known_for": str}},
+    "theory": {{"role_desc": str, "focus_areas": list[str], "known_for": str}},
+    "writing": {{"role_desc": str, "focus_areas": list[str], "known_for": str}}
+  }}
+"""
+
 
 _CONTRACT_TEMPLATE = """\
 ## Sprint Contract
@@ -84,6 +154,52 @@ def _project_metadata_only(project: WritingProject | None, venue: str) -> str:
     title = project.title if project else "Untitled submission"
     target = venue or (project.target_venue if project else "") or "unspecified venue"
     return f"Title: {title}\nTarget venue: {target}"
+
+
+async def generate_reviewer_personas(
+    project: WritingProject | None,
+    tex_content: str,
+    venue: str,
+    provider: LLMProvider | None,
+    config: LLMConfig | None,
+) -> dict[str, dict] | None:
+    """Analyze paper metadata and generate field-aware reviewer personas.
+
+    Falls back to None (static roles) on any failure.
+    """
+    if not provider or not config or not _can_use_llm(config):
+        return None
+
+    title = project.title if project else "Untitled submission"
+    abstract = _plain_text(tex_content)[:500]
+    prompt = _DYNAMIC_PERSONA_PROMPT.format(title=title, venue=venue or project.target_venue or "CS venue", abstract=abstract)
+
+    try:
+        raw = await provider.chat([
+            ChatMessage(role="system", content="You classify CS papers and generate realistic reviewer personas."),
+            ChatMessage(role="user", content=prompt),
+        ], config)
+        parsed = _parse_json_object(raw)
+        category = parsed.get("category", "default")
+        subfield = parsed.get("subfield", "CS")
+        personas = parsed.get("personas", {})
+
+        # Apply FIELD_TEMPLATES for richer role descriptions
+        template = FIELD_TEMPLATES.get(category, FIELD_TEMPLATES["default"])
+        mapped_role_keys = {"method": "method", "experiment": "domain", "theory": "method", "writing": "writing"}
+        result = {}
+        for role_key in ["method", "experiment", "theory", "writing"]:
+            base = personas.get(role_key, {})
+            tmpl_role = mapped_role_keys.get(role_key, "method")
+            enriched_desc = template[tmpl_role].format(subfield=subfield, venue=venue or "the target venue")
+            result[role_key] = {
+                "role_desc": base.get("role_desc", enriched_desc),
+                "focus_areas": base.get("focus_areas", ["General methodology", "Experimental rigor"]),
+                "known_for": base.get("known_for", enriched_desc),
+            }
+        return result
+    except Exception:
+        return None
 
 
 def _fallback_review(index: int, role_key: str, venue: str, project: WritingProject | None) -> dict:
@@ -206,23 +322,35 @@ async def _generate_reviewer_phase2(
     provider: LLMProvider | None,
     config: LLMConfig | None,
     project: WritingProject | None,
+    persona: dict | None = None,
 ) -> dict:
     """Phase 2 — Paper-visible review.
 
     Reviewer scores per the pre-committed plan from Phase 1.
-    If no Phase 1 plan (fallback), runs the original single-pass review.
+    Uses dynamic persona if available, falls back to static REVIEWER_ROLES.
     """
     if not provider or not config or not _can_use_llm(config):
         return _fallback_review(index, role_key, venue, project)
+
+    # Build role description
+    if persona:
+        role_desc = persona.get("role_desc", REVIEWER_ROLES.get(role_key, ""))
+        focus_text = "\n".join(f"- {f}" for f in persona.get("focus_areas", []))
+        known_for = persona.get("known_for", "")
+        role_section = (
+            f"### Reviewer Identity\n{role_desc}\n\n"
+            f"### Focus Areas\n{focus_text}\n\n"
+            f"### Known For\n{known_for}\n"
+        )
+    else:
+        role_section = f"Reviewer role:\n{REVIEWER_ROLES.get(role_key, '')}\n"
 
     if scoring_plan:
         # Two-phase: inject the Phase 1 plan as a data delimiter
         plan_json = json.dumps(scoring_plan, ensure_ascii=False)
         prompt = f"""Simulate one peer review for {venue or "unspecified"}.
 
-Reviewer role:
-{REVIEWER_ROLES[role_key]}
-
+{role_section}
 <phase1_scoring_plan>
 {plan_json}
 </phase1_scoring_plan>
@@ -249,9 +377,7 @@ confidence: integer 1-5
         # Fallback: original single-pass (no pre-commitment available)
         prompt = f"""Simulate one peer review for the target venue: {venue or "unspecified"}.
 
-Reviewer role:
-{REVIEWER_ROLES[role_key]}
-
+{role_section}
 Submission:
 {paper_context}
 
@@ -353,7 +479,15 @@ async def review_paper_simulation(
     metadata = _project_metadata_only(project, venue)
     reviews: list[dict] = []
 
-    yield {"type": "status", "message": f"Loaded LaTeX project and starting {safe_count} simulated reviews with Sprint Contract."}
+    # Generate field-aware reviewer personas
+    yield {"type": "status", "message": "Analyzing paper field and generating reviewer personas..."}
+    personas = await generate_reviewer_personas(project, tex_content, venue, provider, config)
+    if personas:
+        yield {"type": "personas", "personas": personas}
+        yield {"type": "status", "message": "Reviewer personas generated. Starting reviews with Sprint Contract."}
+    else:
+        yield {"type": "status", "message": f"Loaded LaTeX project and starting {safe_count} simulated reviews with Sprint Contract."}
+
     for index, role_key in enumerate(role_keys, 1):
         # Phase 1: paper-blind pre-commitment
         yield {"type": "reviewer_precommit", "reviewer": index, "role": role_key}
@@ -364,9 +498,10 @@ async def review_paper_simulation(
         else:
             yield {"type": "reviewer_precommit_done", "reviewer": index, "role": role_key, "scoring_plan": None}
 
-        # Phase 2: paper-visible review
+        # Phase 2: paper-visible review (with dynamic persona)
         yield {"type": "reviewer_start", "reviewer": index, "role": role_key}
-        review = await _generate_reviewer_phase2(index, role_key, paper_context, venue, scoring_plan, provider, config, project)
+        persona = personas.get(role_key) if personas else None
+        review = await _generate_reviewer_phase2(index, role_key, paper_context, venue, scoring_plan, provider, config, project, persona=persona)
         reviews.append(review)
         yield {"type": "reviewer", "review": review}
 
