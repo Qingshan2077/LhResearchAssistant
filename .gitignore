@@ -13,9 +13,12 @@ node_modules/
 frontend/dist/
 frontend/.vite/
 
-# Rust / Tauri 
+# ── Rust / Tauri ─────────────────────────────────
 frontend/src-tauri/target/
 frontend/src-tauri/debug/
+
+# ── TypeScript 编译缓存 ──────────────────────────
+*.tsbuildinfo
 
 # 运行时数据（本地缓存 + 数据库，不上传）
 backend/data/
