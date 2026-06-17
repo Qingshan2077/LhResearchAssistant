@@ -3,6 +3,7 @@
 import json
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -65,8 +66,11 @@ def _paper_to_response(paper: Paper, is_new: bool = False) -> dict:
         "url": paper.url or "",
         "pdf_url": paper.pdf_url or "",
         "pdf_path": paper.pdf_path or "",
+        "pdf_download_error": paper.pdf_download_error or "",
         "extracted_data": paper.extracted_data or {},
         "citation_verified": paper.citation_verified or [],
+        "citation_data": paper.citation_data or "",
+        "citation_cached_at": paper.citation_cached_at.isoformat() if paper.citation_cached_at else None,
         "tags": paper.tags or [],
         "notes": paper.notes or "",
         "read_status": paper.read_status or "unread",
@@ -79,6 +83,21 @@ def _paper_to_response(paper: Paper, is_new: bool = False) -> dict:
 
 def _as_sse(event: dict) -> dict:
     return {"data": json.dumps(event, ensure_ascii=False)}
+
+
+async def _parse_paper_stream(paper_id: str) -> AsyncIterator[dict]:
+    db = SessionLocal()
+    try:
+        paper = db.query(Paper).filter(Paper.id == paper_id).first()
+        if not paper:
+            yield _as_sse({"type": "error", "message": "Paper not found"})
+            yield _as_sse({"type": "done"})
+            return
+
+        async for event in parse_paper_structure(paper, db):
+            yield _as_sse(event)
+    finally:
+        db.close()
 
 
 def _can_use_llm(config: LLMConfig | None) -> bool:
@@ -335,6 +354,14 @@ async def get_citation_graph_endpoint(paper_id: str, db: Session = Depends(get_d
     if not s2_id:
         return {"error": "Cannot determine Semantic Scholar ID for this paper."}
 
+    if paper.citation_data:
+        try:
+            return json.loads(paper.citation_data)
+        except json.JSONDecodeError:
+            paper.citation_data = ""
+            paper.citation_cached_at = None
+            db.flush()
+
     try:
         graph = await fetch_citation_graph(s2_id)
     except Exception as exc:
@@ -347,6 +374,9 @@ async def get_citation_graph_endpoint(paper_id: str, db: Session = Depends(get_d
     for node in graph.get("graph", {}).get("nodes", []):
         if node.get("is_seed"):
             node["local_id"] = paper.id
+    paper.citation_data = json.dumps(graph, ensure_ascii=False)
+    paper.citation_cached_at = datetime.now(timezone.utc)
+    db.commit()
     return graph
 
 
@@ -435,9 +465,13 @@ async def batch_create_papers(papers: list[PaperCreate], db: Session = Depends(g
 
         # 自动下载 PDF
         if req.pdf_url and not paper.pdf_path:
-            local_path = await download_pdf(req.pdf_url, req.title)
-            if local_path:
-                paper.pdf_path = local_path
+            download_result = await download_pdf(req.pdf_url, req.title)
+            if download_result.success and download_result.local_path:
+                paper.pdf_path = download_result.local_path
+                paper.pdf_download_error = ""
+                db.flush()
+            else:
+                paper.pdf_download_error = download_result.error
                 db.flush()
 
         created.append(_paper_to_response(paper))
@@ -532,7 +566,7 @@ async def parse_paper(paper_id: str, db: Session = Depends(get_db)):
     if not paper.pdf_path or not Path(paper.pdf_path).exists():
         raise HTTPException(status_code=400, detail="PDF file not found")
 
-    return EventSourceResponse(parse_paper_structure(paper, db))
+    return EventSourceResponse(_parse_paper_stream(paper_id))
 
 
 @router.get("/papers/{paper_id}/pdf")
@@ -546,7 +580,11 @@ async def get_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
     if not pdf_path.exists() or not pdf_path.is_file():
         raise HTTPException(status_code=404, detail="PDF file not found")
 
-    return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path.name)
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{pdf_path.name}"'},
+    )
 
 
 @router.post("/papers/{paper_id}/download-pdf")
@@ -562,13 +600,16 @@ async def download_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
     if not paper.pdf_url:
         raise HTTPException(status_code=400, detail="No PDF URL available for this paper")
 
-    local_path = await download_pdf(paper.pdf_url, paper.title)
-    if not local_path:
-        raise HTTPException(status_code=502, detail="Failed to download PDF from source")
+    download_result = await download_pdf(paper.pdf_url, paper.title)
+    if not download_result.success or not download_result.local_path:
+        paper.pdf_download_error = download_result.error
+        db.commit()
+        return {"status": "failed", "pdf_path": "", "error": download_result.error}
 
-    paper.pdf_path = local_path
+    paper.pdf_path = download_result.local_path
+    paper.pdf_download_error = ""
     db.commit()
-    return {"status": "downloaded", "pdf_path": local_path}
+    return {"status": "downloaded", "pdf_path": download_result.local_path}
 
 
 @router.post("/papers/{paper_id}/relations")

@@ -24,7 +24,7 @@ const SOURCE_OPTIONS = [
 ];
 
 export default function SearchPage() {
-  const { papers, loading, error, search, searchQuery, totalCount, sourceBreakdown } =
+  const { papers, loading, error, search, searchQuery, totalCount, sourceBreakdown, sourceErrors } =
     usePaperStore();
   const [query, setQuery] = useState("");
   const [sources, setSources] = useState<string[]>(SOURCE_OPTIONS.map((s) => s.id));
@@ -328,23 +328,28 @@ export default function SearchPage() {
             <div className="flex flex-wrap items-center gap-2">
               {SOURCE_OPTIONS.map((source) => {
                 const active = sources.includes(source.id);
+                const sourceError = sourceErrors[source.id];
                 return (
                   <button
                     key={source.id}
                     type="button"
                     onClick={() => toggleSource(source.id)}
+                    title={sourceError || source.label}
                     className={clsx(
                       "inline-flex h-8 items-center gap-2 rounded-md border px-3 text-xs font-medium transition",
-                      active
+                      sourceError
+                        ? "border-destructive/60 bg-destructive/10 text-destructive"
+                        : active
                         ? "border-cyan-400/60 bg-cyan-400/10 text-cyan-600 dark:text-cyan-300"
                         : "border-border bg-background text-muted-foreground hover:text-foreground"
                     )}
                   >
-                    {active ? <Check size={14} /> : <Database size={14} />}
+                    {sourceError ? <AlertCircle size={14} /> : active ? <Check size={14} /> : <Database size={14} />}
                     {source.label}
                     {sourceBreakdown[source.id] !== undefined && (
                       <span className="rounded bg-background/80 px-1.5 py-0.5">
                         {sourceBreakdown[source.id]}
+                        {sourceError ? " !" : ""}
                       </span>
                     )}
                   </button>

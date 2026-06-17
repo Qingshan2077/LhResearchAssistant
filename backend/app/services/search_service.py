@@ -1,6 +1,7 @@
 """搜索服务 — 多数据源并行检索 + 去重合并"""
 
 import asyncio
+import httpx
 from app.services.paper_sources import PaperSourceResult
 from app.services.paper_sources.arxiv import ArxivSource
 from app.services.paper_sources.semanticscholar import SemanticScholarSource
@@ -53,41 +54,59 @@ async def search_papers(
     max_results_per_source: int = 50,
     year_from: int | None = None,
     year_to: int | None = None,
-) -> tuple[list[PaperSourceResult], dict[str, int]]:
-    """多源并行搜索，返回 (结果列表, 来源统计)"""
+) -> tuple[list[PaperSourceResult], dict[str, int], dict[str, str]]:
+    """Multi-source search, returning results, per-source counts, and per-source errors."""
     if sources is None:
         sources = list(SOURCES.keys())
 
-    async def _search_one(name: str) -> list[PaperSourceResult]:
+    async def _search_one(name: str) -> tuple[str, list[PaperSourceResult], str | None]:
         source_cls = SOURCES.get(name)
         if not source_cls:
-            return []
+            return name, [], "Unknown source."
         try:
             instance = source_cls()
-            return await instance.search(
+            results = await instance.search(
                 query=query,
                 max_results=max_results_per_source,
                 year_from=year_from,
                 year_to=year_to,
             )
-        except Exception:
-            # 单个源失败不影响其他
-            return []
+            for result in results:
+                _fill_pdf_url(result)
+            return name, results, None
+        except httpx.ConnectError:
+            return name, [], "Connection failed: network unreachable."
+        except httpx.TimeoutException:
+            return name, [], "Request timed out."
+        except httpx.HTTPStatusError as exc:
+            return name, [], f"HTTP {exc.response.status_code} from source."
+        except Exception as exc:
+            return name, [], f"Search failed: {str(exc)[:80]}"
 
     tasks = [_search_one(name) for name in sources]
-    results_lists = await asyncio.gather(*tasks)
+    source_results = await asyncio.gather(*tasks)
 
     # 合并
     all_results: list[PaperSourceResult] = []
     breakdown: dict[str, int] = {}
-    for name, results in zip(sources, results_lists):
+    source_errors: dict[str, str] = {}
+    for name, results, error in source_results:
         all_results.extend(results)
         breakdown[name] = len(results)
+        if error:
+            source_errors[name] = error
 
     # 去重
     deduped = _deduplicate(all_results)
 
-    return deduped, breakdown
+    return deduped, breakdown, source_errors
+
+
+def _fill_pdf_url(result: PaperSourceResult) -> None:
+    """Fill obvious PDF URLs from arXiv ids when upstream sources omit them."""
+    if not result.pdf_url and result.arxiv_id:
+        arxiv_id = result.arxiv_id.removesuffix(".pdf")
+        result.pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
 
 
 def source_to_paper_dict(source: PaperSourceResult) -> dict:
@@ -110,7 +129,11 @@ def source_to_paper_dict(source: PaperSourceResult) -> dict:
         "url": source.url,
         "pdf_url": source.pdf_url,
         "pdf_path": "",
+        "pdf_download_error": "",
         "extracted_data": {},
+        "citation_verified": [],
+        "citation_data": "",
+        "citation_cached_at": None,
         "tags": [],
         "notes": "",
         "read_status": "unread",

@@ -59,7 +59,10 @@ class DBLPSource(PaperSource):
             # 提取 DOI/arxiv
             doi = ""
             arxiv_id = ""
-            for link in info.get("links", {}).get("link", []):
+            links = info.get("links", {}).get("link", [])
+            if isinstance(links, dict):
+                links = [links]
+            for link in links:
                 if isinstance(link, dict):
                     url = link.get("href", "")
                     if "doi.org" in url:

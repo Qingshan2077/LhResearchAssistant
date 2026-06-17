@@ -32,8 +32,11 @@ export type Paper = {
   url: string;
   pdf_url: string;
   pdf_path: string;
+  pdf_download_error: string;
   extracted_data: Record<string, unknown>;
   citation_verified: Array<Record<string, unknown>>;
+  citation_data: string;
+  citation_cached_at: string | null;
   tags: string[];
   notes: string;
   read_status: string;
@@ -47,6 +50,7 @@ export type SearchResponse = {
   papers: Paper[];
   total_count: number;
   source_breakdown: Record<string, number>;
+  source_errors: Record<string, string>;
 };
 
 export type LLMProvider = {

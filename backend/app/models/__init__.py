@@ -37,8 +37,11 @@ class PaperResponse(PaperBase):
     id: str = ""
     project_id: Optional[str] = None
     pdf_path: str = ""
+    pdf_download_error: str = ""
     extracted_data: dict = {}
     citation_verified: list[dict] = Field(default_factory=list)
+    citation_data: str = ""
+    citation_cached_at: Optional[datetime] = None
     tags: list[str] = []
     notes: str = ""
     read_status: str = "unread"
@@ -86,6 +89,7 @@ class SearchResponse(BaseModel):
     papers: list[PaperResponse]
     total_count: int
     source_breakdown: dict[str, int]
+    source_errors: dict[str, str] = Field(default_factory=dict)
 
 
 class ImportRequest(BaseModel):

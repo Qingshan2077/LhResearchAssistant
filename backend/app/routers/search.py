@@ -10,6 +10,7 @@ from app.models import (
     SearchRequest, SearchResponse, ImportRequest, ImportResponse,
     ReviewRequest,
 )
+from app.services.pdf_download import download_pdf
 from app.services.search_service import search_papers, source_to_paper_dict
 from app.agents.paper_agent import generate_review
 
@@ -49,7 +50,11 @@ def _paper_to_response(paper: Paper, is_new: bool = False) -> dict:
         "url": paper.url or "",
         "pdf_url": paper.pdf_url or "",
         "pdf_path": paper.pdf_path or "",
+        "pdf_download_error": paper.pdf_download_error or "",
         "extracted_data": paper.extracted_data or {},
+        "citation_verified": paper.citation_verified or [],
+        "citation_data": paper.citation_data or "",
+        "citation_cached_at": paper.citation_cached_at,
         "tags": paper.tags or [],
         "notes": paper.notes or "",
         "read_status": paper.read_status or "unread",
@@ -63,7 +68,7 @@ def _paper_to_response(paper: Paper, is_new: bool = False) -> dict:
 @router.post("/search", response_model=SearchResponse)
 async def search(req: SearchRequest, db: Session = Depends(get_db)):
     """多源检索论文"""
-    results, breakdown = await search_papers(
+    results, breakdown, source_errors = await search_papers(
         query=req.query,
         sources=req.sources,
         max_results_per_source=req.max_results_per_source,
@@ -101,6 +106,7 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
         papers=papers,
         total_count=len(papers),
         source_breakdown=breakdown,
+        source_errors=source_errors,
     )
 
 
@@ -166,6 +172,16 @@ async def import_papers(req: ImportRequest, db: Session = Depends(get_db)):
         )
         db.add(paper)
         db.flush()
+
+        if req_paper.pdf_url:
+            download_result = await download_pdf(req_paper.pdf_url, req_paper.title)
+            if download_result.success and download_result.local_path:
+                paper.pdf_path = download_result.local_path
+                paper.pdf_download_error = ""
+            else:
+                paper.pdf_download_error = download_result.error
+            db.flush()
+
         imported += 1
         papers.append(_paper_to_response(paper))
 

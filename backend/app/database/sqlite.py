@@ -57,8 +57,11 @@ class Paper(Base):
 
     # 本地数据
     pdf_path = Column(String(1024), default="")       # 本地缓存路径
+    pdf_download_error = Column(Text, default="")     # PDF download failure reason
     extracted_data = Column(JSON, default=dict)        # LLM 结构化提取结果
     citation_verified = Column(JSON, default=list)     # S2 citation verification results
+    citation_data = Column(Text, default="")           # Cached citation graph JSON
+    citation_cached_at = Column(DateTime, nullable=True)
     tags = Column(JSON, default=list)                  # 用户标签
     notes = Column(Text, default="")                   # 用户笔记
     read_status = Column(String(16), default="unread") # unread / reading / read
@@ -187,3 +190,9 @@ def ensure_runtime_schema(engine) -> None:
     with engine.begin() as connection:
         if "citation_verified" not in paper_columns:
             connection.execute(text("ALTER TABLE papers ADD COLUMN citation_verified JSON DEFAULT '[]'"))
+        if "pdf_download_error" not in paper_columns:
+            connection.execute(text("ALTER TABLE papers ADD COLUMN pdf_download_error TEXT DEFAULT ''"))
+        if "citation_data" not in paper_columns:
+            connection.execute(text("ALTER TABLE papers ADD COLUMN citation_data TEXT DEFAULT ''"))
+        if "citation_cached_at" not in paper_columns:
+            connection.execute(text("ALTER TABLE papers ADD COLUMN citation_cached_at DATETIME"))

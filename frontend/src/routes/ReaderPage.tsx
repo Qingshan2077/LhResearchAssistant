@@ -49,6 +49,7 @@ export default function ReaderPage() {
   const [parsing, setParsing] = useState(false);
   const [notes, setNotes] = useState("");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [verifyingCitations, setVerifyingCitations] = useState(false);
   const [verificationProgress, setVerificationProgress] = useState("");
   const [citationStatus, setCitationStatus] = useState<CitationStatus | null>(null);
@@ -164,6 +165,25 @@ export default function ReaderPage() {
     await api.patch(`papers/${id}`, { json: { notes } });
   };
 
+  const handleDownloadPdf = async () => {
+    if (!id) return;
+    setDownloadingPdf(true);
+    try {
+      const result = await api
+        .post(`papers/${id}/download-pdf`)
+        .json<{ status: string; pdf_path?: string; error?: string }>();
+      if (result.status === "downloaded" || result.status === "exists") {
+        const next = await api.get(`papers/${id}`).json<Paper>();
+        setPaper(next);
+        setPdfUrl(`/api/v1/papers/${id}/pdf?t=${Date.now()}`);
+      } else {
+        setPaper((prev) => prev ? { ...prev, pdf_download_error: result.error || "PDF download failed." } : prev);
+      }
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   const handleVerifyCitations = async () => {
     if (!id) return;
     setVerifyingCitations(true);
@@ -250,19 +270,27 @@ export default function ReaderPage() {
         <div className="flex-1 border border-border rounded-lg overflow-hidden bg-card flex flex-col">
           <div className="px-4 py-2 border-b border-border bg-muted/30 flex items-center justify-between text-sm">
             <span className="text-muted-foreground">PDF 阅读器</span>
-            {paper.pdf_path && (
-              <a
-                href={pdfUrl || "#"}
-                download
-                className="text-primary hover:underline flex items-center gap-1"
+            {paper.pdf_path ? (
+              <span className="inline-flex items-center gap-1 text-xs text-green-500">
+                <Download size={14} /> 后台已缓存
+              </span>
+            ) : paper.pdf_url ? (
+              <button
+                onClick={handleDownloadPdf}
+                disabled={downloadingPdf}
+                className="text-primary hover:underline flex items-center gap-1 disabled:opacity-50"
               >
-                <Download size={14} /> 下载
-              </a>
+                {downloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                后台下载 PDF
+              </button>
+            ) : (
+              <span className="text-xs text-muted-foreground">No PDF URL</span>
             )}
           </div>
           <div className="flex-1 flex items-center justify-center bg-muted/20">
             {paper.pdf_path ? (
               <iframe
+                key={pdfUrl || paper.pdf_path}
                 title={paper.title}
                 src={pdfUrl || `/api/v1/papers/${id}/pdf`}
                 className="h-full w-full border-0 bg-background"
@@ -270,8 +298,20 @@ export default function ReaderPage() {
             ) : (
               <div className="text-center p-8 text-muted-foreground">
                 <FileText size={48} className="mx-auto mb-4 opacity-50" />
-                <p className="text-sm">无 PDF 文件</p>
-                <p className="text-xs mt-1">导入 PDF 后才能在线阅读</p>
+                <p className="text-sm">PDF 无法显示</p>
+                <p className="text-xs mt-1">
+                  {paper.pdf_download_error || (paper.pdf_url ? "尚未下载到本地。" : "该文献没有可用的开放 PDF 链接。")}
+                </p>
+                {paper.pdf_url && (
+                  <button
+                    onClick={handleDownloadPdf}
+                    disabled={downloadingPdf}
+                    className="mt-4 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-foreground hover:bg-muted disabled:opacity-50"
+                  >
+                    {downloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    后台下载并打开 PDF
+                  </button>
+                )}
               </div>
             )}
           </div>

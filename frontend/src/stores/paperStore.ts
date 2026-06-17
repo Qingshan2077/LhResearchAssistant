@@ -9,6 +9,7 @@ interface PaperStore {
   searchQuery: string;
   totalCount: number;
   sourceBreakdown: Record<string, number>;
+  sourceErrors: Record<string, string>;
   page: number;
   pageSize: number;
 
@@ -28,6 +29,7 @@ export const usePaperStore = create<PaperStore>((set, get) => ({
   searchQuery: "",
   totalCount: 0,
   sourceBreakdown: {},
+  sourceErrors: {},
   page: 1,
   pageSize: 20,
 
@@ -39,6 +41,7 @@ export const usePaperStore = create<PaperStore>((set, get) => ({
       papers: [],
       totalCount: 0,
       sourceBreakdown: {},
+      sourceErrors: {},
     });
     try {
       const resp = await api
@@ -56,6 +59,7 @@ export const usePaperStore = create<PaperStore>((set, get) => ({
         papers: Array.isArray(resp.papers) ? resp.papers : [],
         totalCount: resp.total_count ?? resp.papers?.length ?? 0,
         sourceBreakdown: resp.source_breakdown ?? {},
+        sourceErrors: resp.source_errors ?? {},
         loading: false,
       });
     } catch (error) {
@@ -73,7 +77,7 @@ export const usePaperStore = create<PaperStore>((set, get) => ({
   },
 
   fetchPapers: async (projectId, params = {}) => {
-    set({ loading: true, error: null });
+    set({ loading: true, error: null, sourceErrors: {} });
     try {
       const searchParams = new URLSearchParams({
         project_id: projectId,
