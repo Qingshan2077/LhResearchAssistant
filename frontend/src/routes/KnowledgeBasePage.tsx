@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { useKnowledgeStore } from "../stores/knowledgeStore";
 import { useNavigate } from "react-router-dom";
-import { Network, Search as SearchIcon, Loader2, BookOpen } from "lucide-react";
+import { BookOpen, Loader2, Network, Search as SearchIcon } from "lucide-react";
 import cytoscape from "cytoscape";
 import { ChatPanel } from "../components/ChatPanel";
+import { t } from "../i18n";
+import { useKnowledgeStore } from "../stores/knowledgeStore";
+import { useSettingsStore } from "../stores/settingsStore";
 
 export default function KnowledgeBasePage() {
   const navigate = useNavigate();
+  const language = useSettingsStore((s) => s.language);
   const { graphData, fetchGraph, query, queryResult, querying } = useKnowledgeStore();
   const [searchInput, setSearchInput] = useState("");
   const graphRef = useRef<HTMLDivElement | null>(null);
@@ -89,29 +92,11 @@ export default function KnowledgeBasePage() {
             opacity: 0.75,
           },
         },
-        {
-          selector: "edge[type = 'cites']",
-          style: { "line-color": "#3b82f6", "target-arrow-color": "#3b82f6" },
-        },
-        {
-          selector: "edge[type = 'extends']",
-          style: { "line-color": "#22c55e", "target-arrow-color": "#22c55e" },
-        },
-        {
-          selector: "edge[type = 'conflicts'], edge[type = 'conflicts_with']",
-          style: { "line-color": "#ef4444", "target-arrow-color": "#ef4444" },
-        },
-        {
-          selector: "edge[type = 'compared_to']",
-          style: { "line-color": "#a855f7", "target-arrow-color": "#a855f7" },
-        },
-        {
-          selector: "node:selected",
-          style: {
-            "border-color": "#22d3ee",
-            "border-width": 4,
-          },
-        },
+        { selector: "edge[type = 'cites']", style: { "line-color": "#3b82f6", "target-arrow-color": "#3b82f6" } },
+        { selector: "edge[type = 'extends']", style: { "line-color": "#22c55e", "target-arrow-color": "#22c55e" } },
+        { selector: "edge[type = 'conflicts'], edge[type = 'conflicts_with']", style: { "line-color": "#ef4444", "target-arrow-color": "#ef4444" } },
+        { selector: "edge[type = 'compared_to']", style: { "line-color": "#a855f7", "target-arrow-color": "#a855f7" } },
+        { selector: "node:selected", style: { "border-color": "#22d3ee", "border-width": 4 } },
       ],
       layout: {
         name: "cose",
@@ -154,79 +139,67 @@ export default function KnowledgeBasePage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 h-full">
-      {/* 标题 */}
+    <div className="flex h-full flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold">知识库</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          论文知识图谱 + 语义搜索
-        </p>
+        <h1 className="text-2xl font-bold">{t(language, "knowledgeTitle")}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t(language, "knowledgeSubtitle")}</p>
       </div>
 
-      {/* 搜索栏 */}
       <div className="flex gap-3">
         <input
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleQuery()}
-          placeholder="搜索知识库内容…"
-          className="flex-1 px-4 py-2.5 rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          placeholder={t(language, "searchKnowledgePlaceholder")}
+          className="flex-1 rounded-lg border border-input bg-background px-4 py-2.5 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         />
         <button
           onClick={handleQuery}
           disabled={querying || !searchInput.trim()}
-          className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors font-medium"
+          className="rounded-lg bg-primary px-6 py-2.5 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
         >
-          {querying ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <SearchIcon size={16} />
-          )}
+          {querying ? <Loader2 size={16} className="animate-spin" /> : <SearchIcon size={16} />}
         </button>
       </div>
 
-      <div className="flex gap-6 flex-1 min-h-0">
-        {/* 知识图谱 */}
-        <div className="flex-1 border border-border rounded-lg overflow-hidden bg-card flex flex-col">
-          <div className="px-4 py-2.5 border-b border-border bg-muted/30 flex items-center justify-between">
-            <span className="text-sm font-medium flex items-center gap-2">
+      <div className="flex min-h-0 flex-1 gap-6">
+        <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+          <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2.5">
+            <span className="flex items-center gap-2 text-sm font-medium">
               <Network size={16} />
-              知识图谱
+              {t(language, "knowledgeGraph")}
             </span>
             <span className="text-xs text-muted-foreground">
-              {graphData?.nodes.length || 0} 节点 / {graphData?.edges.length || 0} 关系
+              {graphData?.nodes.length || 0} {t(language, "nodes")} / {graphData?.edges.length || 0} {t(language, "relations")}
             </span>
           </div>
-          <div className="flex-1 flex items-center justify-center p-4">
+          <div className="flex flex-1 items-center justify-center p-4">
             {graphData && graphData.nodes.length > 0 ? (
-              <div ref={graphRef} className="h-full w-full min-h-[360px]" />
+              <div ref={graphRef} className="h-full min-h-[360px] w-full" />
             ) : (
               <div className="text-center text-muted-foreground">
                 <Network size={48} className="mx-auto mb-4 opacity-30" />
-                <p className="text-sm">知识库为空</p>
-                <p className="text-xs mt-1">导入论文后自动构建知识图谱</p>
+                <p className="text-sm">{t(language, "emptyKnowledge")}</p>
+                <p className="mt-1 text-xs">{t(language, "emptyKnowledgeHelp")}</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* 搜索结果 */}
         <div className="flex w-[400px] shrink-0 flex-col gap-4">
-          <div className="min-h-0 flex flex-1 flex-col overflow-hidden rounded-lg border border-border">
-            <div className="px-4 py-2.5 border-b border-border bg-muted/30 text-sm font-medium">
-              搜索结果
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border">
+            <div className="border-b border-border bg-muted/30 px-4 py-2.5 text-sm font-medium">
+              {t(language, "searchResults")}
             </div>
             <div className="flex-1 overflow-auto p-4">
               {queryResult ? (
-                <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                  {queryResult}
-                </div>
+                <div className="whitespace-pre-wrap text-sm leading-relaxed">{queryResult}</div>
               ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                   <div className="text-center">
                     <BookOpen size={32} className="mx-auto mb-2 opacity-30" />
-                    搜索知识库内容
+                    {t(language, "searchKnowledgePrompt")}
                   </div>
                 </div>
               )}

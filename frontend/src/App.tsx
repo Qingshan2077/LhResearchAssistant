@@ -13,11 +13,13 @@ import { useSettingsStore } from "./stores/settingsStore";
 
 function App() {
   const theme = useSettingsStore((s) => s.theme);
+  const language = useSettingsStore((s) => s.language);
 
   useEffect(() => {
     // 应用主题
     document.documentElement.classList.toggle("dark", theme === "dark");
-  }, [theme]);
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+  }, [theme, language]);
 
   return (
     <Routes>

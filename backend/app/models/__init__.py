@@ -368,8 +368,23 @@ class ProviderCreate(BaseModel):
     temperature: float = 0.7
 
 
+class ProviderUpdate(BaseModel):
+    name: Optional[str] = None
+    display_name: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    default_model: Optional[str] = None
+    is_active: Optional[bool] = None
+    priority: Optional[int] = None
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+
+
 class ProviderResponse(ProviderCreate):
     id: str
+    last_test_at: Optional[datetime] = None
+    last_test_success: Optional[bool] = None
+    last_test_latency: int = 0
 
     model_config = {"from_attributes": True}
 

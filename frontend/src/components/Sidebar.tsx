@@ -9,58 +9,56 @@ import {
   Moon,
   Sun,
 } from "lucide-react";
+import { t } from "../i18n";
 import { useSettingsStore } from "../stores/settingsStore";
 import clsx from "clsx";
 
-const NAV_ITEMS = [
-  { path: "/", icon: Search, label: "文献检索" },
-  { path: "/knowledge", icon: Network, label: "知识库" },
-  { path: "/ideas", icon: Lightbulb, label: "Idea 生成" },
-  { path: "/write", icon: FileText, label: "论文写作" },
-  { path: "/review", icon: ClipboardCheck, label: "审稿" },
-];
-
 export function Sidebar() {
-  const { theme, toggleTheme } = useSettingsStore();
+  const { theme, toggleTheme, language } = useSettingsStore();
   const ThemeIcon = theme === "dark" ? Sun : Moon;
+  const navItems = [
+    { path: "/", icon: Search, label: t(language, "navSearch") },
+    { path: "/knowledge", icon: Network, label: t(language, "navKnowledge") },
+    { path: "/ideas", icon: Lightbulb, label: t(language, "navIdeas") },
+    { path: "/write", icon: FileText, label: t(language, "navWrite") },
+    { path: "/review", icon: ClipboardCheck, label: t(language, "navReview") },
+    { path: "/settings", icon: Settings, label: t(language, "navSettings") },
+  ];
 
   return (
-    <aside className="flex flex-col w-16 border-r border-border bg-card items-center py-4 gap-2 shrink-0">
-      {/* Logo */}
-      <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center mb-4">
-        <span className="text-primary-foreground font-bold text-sm">RA</span>
+    <aside className="flex w-16 shrink-0 flex-col items-center gap-2 border-r border-border bg-card py-4">
+      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
+        <span className="text-sm font-bold text-primary-foreground">RA</span>
       </div>
 
-      {/* 导航 */}
-      <nav className="flex flex-col gap-1 flex-1">
-        {NAV_ITEMS.map(({ path, icon: Icon, label }) => (
+      <nav className="flex flex-1 flex-col gap-1">
+        {navItems.map(({ path, icon: Icon, label }) => (
           <NavLink
             key={path}
             to={path}
             end={path === "/"}
             className={({ isActive }) =>
               clsx(
-                "w-10 h-10 rounded-lg flex items-center justify-center transition-colors relative group",
+                "group relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
                 isActive
                   ? "bg-primary/15 text-primary"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )
             }
             title={label}
           >
             <Icon size={20} />
-            <span className="absolute left-14 top-1/2 -translate-y-1/2 px-2 py-1 rounded-md bg-popover text-popover-foreground text-xs shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none">
+            <span className="pointer-events-none absolute left-14 top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
               {label}
             </span>
           </NavLink>
         ))}
       </nav>
 
-      {/* 主题切换 */}
       <button
         onClick={toggleTheme}
-        className="w-10 h-10 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-        title={theme === "dark" ? "切换亮色" : "切换暗色"}
+        className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        title={theme === "dark" ? t(language, "switchLight") : t(language, "switchDark")}
       >
         <ThemeIcon size={18} />
       </button>

@@ -8,6 +8,7 @@ from app.llm.deepseek import DeepSeekProvider
 from app.llm.openai_compat import OpenAICompatibleProvider
 from app.llm.ollama import OllamaProvider
 from app.config import settings
+from app.database.usage_tracker import UsageTrackingProvider
 
 # Provider 类映射
 PROVIDER_MAP: dict[str, type[LLMProvider]] = {
@@ -50,7 +51,7 @@ def get_active_provider(db: Session) -> tuple[LLMProvider, LLMConfig]:
             base_url=settings.default_deepseek_base_url,
             model=settings.default_deepseek_model,
         )
-        return cls(), cfg
+        return UsageTrackingProvider(cls(), db, provider_name="deepseek"), cfg
 
     cls = PROVIDER_MAP.get(record.name, OpenAICompatibleProvider)
     cfg = LLMConfig(
@@ -60,7 +61,8 @@ def get_active_provider(db: Session) -> tuple[LLMProvider, LLMConfig]:
         max_tokens=record.max_tokens,
         temperature=record.temperature,
     )
-    return cls(), cfg
+    provider_name = record.display_name or record.name
+    return UsageTrackingProvider(cls(), db, provider_id=record.id, provider_name=provider_name), cfg
 
 
 def get_provider_by_id(provider_id: str, db: Session) -> tuple[LLMProvider, LLMConfig] | None:
@@ -77,4 +79,5 @@ def get_provider_by_id(provider_id: str, db: Session) -> tuple[LLMProvider, LLMC
         max_tokens=record.max_tokens,
         temperature=record.temperature,
     )
-    return cls(), cfg
+    provider_name = record.display_name or record.name
+    return UsageTrackingProvider(cls(), db, provider_id=record.id, provider_name=provider_name), cfg

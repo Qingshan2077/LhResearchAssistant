@@ -148,6 +148,25 @@ class LLMProvider(Base):
     priority = Column(Integer, default=0)
     max_tokens = Column(Integer, default=8192)
     temperature = Column(Float, default=0.7)
+    last_test_at = Column(DateTime, nullable=True)
+    last_test_success = Column(Boolean, nullable=True)
+    last_test_latency = Column(Integer, default=0)
+
+
+class LLMUsage(Base):
+    __tablename__ = "llm_usage"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    timestamp = Column(DateTime, default=_utcnow, index=True)
+    provider_id = Column(String(36), nullable=True)
+    provider_name = Column(String(64), default="")
+    model = Column(String(128), default="")
+    function_name = Column(String(64), default="")
+    tokens_in = Column(Integer, default=0)
+    tokens_out = Column(Integer, default=0)
+    duration_ms = Column(Integer, default=0)
+    status = Column(String(16), default="success")
+    error_msg = Column(String(512), default="")
 
 
 # ── 写作项目 ──────────────────────────────────────
@@ -196,3 +215,12 @@ def ensure_runtime_schema(engine) -> None:
             connection.execute(text("ALTER TABLE papers ADD COLUMN citation_data TEXT DEFAULT ''"))
         if "citation_cached_at" not in paper_columns:
             connection.execute(text("ALTER TABLE papers ADD COLUMN citation_cached_at DATETIME"))
+
+    provider_columns = {column["name"] for column in inspector.get_columns("llm_providers")}
+    with engine.begin() as connection:
+        if "last_test_at" not in provider_columns:
+            connection.execute(text("ALTER TABLE llm_providers ADD COLUMN last_test_at DATETIME"))
+        if "last_test_success" not in provider_columns:
+            connection.execute(text("ALTER TABLE llm_providers ADD COLUMN last_test_success BOOLEAN"))
+        if "last_test_latency" not in provider_columns:
+            connection.execute(text("ALTER TABLE llm_providers ADD COLUMN last_test_latency INTEGER DEFAULT 0"))

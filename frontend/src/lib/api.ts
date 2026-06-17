@@ -64,6 +64,65 @@ export type LLMProvider = {
   priority: number;
   max_tokens: number;
   temperature: number;
+  last_test_at: string | null;
+  last_test_success: boolean | null;
+  last_test_latency: number;
+};
+
+export type UsageSummary = {
+  calls_today: number;
+  calls_week: number;
+  calls_month: number;
+  tokens_in_week: number;
+  tokens_out_week: number;
+};
+
+export type UsageByProvider = Array<{
+  provider_name: string;
+  model: string;
+  calls: number;
+  tokens_in: number;
+  tokens_out: number;
+}>;
+
+export type UsageByFunction = Array<{
+  function_name: string;
+  calls: number;
+  tokens_total: number;
+  percentage: number;
+}>;
+
+export type UsageRecord = {
+  id: string;
+  timestamp: string;
+  provider_name: string;
+  model: string;
+  function_name: string;
+  tokens_in: number;
+  tokens_out: number;
+  duration_ms: number;
+  status: string;
+};
+
+export type DataStats = {
+  paper_count: number;
+  chroma_count: number;
+  writing_project_count: number;
+  provider_count: number;
+  cache_size_mb: number;
+  db_size_mb: number;
+  cache_path: string;
+};
+
+export type SystemInfo = {
+  backend_version: string;
+  python_version: string;
+  db_path: string;
+  cache_path: string;
+  cache_size_mb: number;
+  chroma_path: string;
+  data_dir: string;
+  cwd: string;
 };
 
 export type GraphData = {

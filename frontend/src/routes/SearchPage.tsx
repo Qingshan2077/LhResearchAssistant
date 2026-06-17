@@ -14,8 +14,10 @@ import {
   Table2,
 } from "lucide-react";
 import clsx from "clsx";
-import { usePaperStore } from "../stores/paperStore";
+import { t } from "../i18n";
 import { api, type ComparisonTable, type Paper } from "../lib/api";
+import { usePaperStore } from "../stores/paperStore";
+import { useSettingsStore } from "../stores/settingsStore";
 
 const SOURCE_OPTIONS = [
   { id: "arxiv", label: "arXiv" },
@@ -24,6 +26,7 @@ const SOURCE_OPTIONS = [
 ];
 
 export default function SearchPage() {
+  const language = useSettingsStore((s) => s.language);
   const { papers, loading, error, search, searchQuery, totalCount, sourceBreakdown, sourceErrors } =
     usePaperStore();
   const [query, setQuery] = useState("");
@@ -40,16 +43,15 @@ export default function SearchPage() {
   const reviewRef = useRef<HTMLDivElement>(null);
 
   const selectedPapers = useMemo(
-    () => papers.filter((p) => selectedIds.has(p.id)),
+    () => papers.filter((paper) => selectedIds.has(paper.id)),
     [papers, selectedIds]
   );
-
   const hasSearched = Boolean(searchQuery);
 
   const handleSearch = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      const activeSources = sources.length ? sources : SOURCE_OPTIONS.map((s) => s.id);
+    async (event: React.FormEvent) => {
+      event.preventDefault();
+      const activeSources = sources.length ? sources : SOURCE_OPTIONS.map((source) => source.id);
       const trimmed = query.trim();
       if (!trimmed) return;
 
@@ -65,7 +67,7 @@ export default function SearchPage() {
 
   const toggleSource = (source: string) => {
     setSources((prev) =>
-      prev.includes(source) ? prev.filter((s) => s !== source) : [...prev, source]
+      prev.includes(source) ? prev.filter((item) => item !== source) : [...prev, source]
     );
   };
 
@@ -85,7 +87,7 @@ export default function SearchPage() {
 
     try {
       await api.post("papers/batch", {
-        json: selectedPapers.map((p) => toPaperCreate(p, projectId)),
+        json: selectedPapers.map((paper) => toPaperCreate(paper, projectId)),
       });
     } catch {
       // Existing papers are resolved by fetching the local library below.
@@ -104,28 +106,22 @@ export default function SearchPage() {
     if (selectedIds.size === 0 || !askQuestion.trim()) return;
     setAsking(true);
     setAskAnswer("");
-    setAskStatus("Preparing selected papers...");
+    setAskStatus(t(language, "preparingSelectedPapers"));
 
     try {
       const paperIds = await resolveSelectedLocalPaperIds();
       if (paperIds.length === 0) {
-        setAskStatus("No selected papers could be resolved locally.");
+        setAskStatus(t(language, "noSelectedResolved"));
         return;
       }
 
       const response = await fetch("/api/v1/papers/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          paper_ids: paperIds,
-          question: askQuestion,
-          top_k: 8,
-        }),
+        body: JSON.stringify({ paper_ids: paperIds, question: askQuestion, top_k: 8 }),
       });
 
-      if (!response.ok) {
-        throw new Error(`Ask request failed: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`${response.status}`);
 
       const reader = response.body?.getReader();
       if (!reader) return;
@@ -143,22 +139,17 @@ export default function SearchPage() {
           if (!line.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(line.slice(6));
-            if (data.type === "chunk") {
-              setAskAnswer((prev) => prev + data.content);
-            } else if (data.type === "status") {
-              setAskStatus(String(data.message || ""));
-            } else if (data.type === "error") {
-              setAskStatus(String(data.message || "Ask failed."));
-            } else if (data.type === "done") {
-              setAskStatus("");
-            }
+            if (data.type === "chunk") setAskAnswer((prev) => prev + data.content);
+            if (data.type === "status") setAskStatus(String(data.message || ""));
+            if (data.type === "error") setAskStatus(String(data.message || t(language, "askFailed")));
+            if (data.type === "done") setAskStatus("");
           } catch {
             // Ignore malformed SSE rows.
           }
         }
       }
-    } catch (e) {
-      setAskStatus(`Ask failed: ${e}`);
+    } catch (err) {
+      setAskStatus(`${t(language, "askFailed")} ${err}`);
     } finally {
       setAsking(false);
     }
@@ -168,7 +159,6 @@ export default function SearchPage() {
     if (selectedIds.size < 2) return;
     setComparing(true);
     setComparisonTable(null);
-
     try {
       const paperIds = await resolveSelectedLocalPaperIds();
       if (paperIds.length < 2) return;
@@ -192,10 +182,9 @@ export default function SearchPage() {
     setReviewContent("");
 
     const projectId = "default";
-
     try {
       await api.post("papers/batch", {
-        json: selectedPapers.map((p) => toPaperCreate(p, projectId)),
+        json: selectedPapers.map((paper) => toPaperCreate(paper, projectId)),
       });
     } catch {
       // Papers may already exist locally. Continue and resolve imported IDs below.
@@ -207,8 +196,8 @@ export default function SearchPage() {
         .json<{ items: Paper[] }>();
 
       const importedIds = resp.items
-        .filter((p) => selectedPapers.some((sp) => sp.title === p.title))
-        .map((p) => p.id);
+        .filter((paper) => selectedPapers.some((selected) => selected.title === paper.title))
+        .map((paper) => paper.id);
 
       const response = await fetch("/api/v1/search/generate-review", {
         method: "POST",
@@ -217,38 +206,31 @@ export default function SearchPage() {
           project_id: projectId,
           paper_ids: importedIds,
           focus: "method_comparison",
-          language: "en",
+          language,
         }),
       });
 
-      if (!response.ok) {
-        throw new Error(`Review request failed: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`${response.status}`);
 
       const reader = response.body?.getReader();
       if (!reader) return;
 
       const decoder = new TextDecoder();
       let buffer = "";
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
-
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(line.slice(6));
-            if (data.type === "chunk") {
-              setReviewContent((prev) => prev + data.content);
-            } else if (data.type === "done") {
-              setGeneratingReview(false);
-            } else if (data.type === "error") {
-              setReviewContent((prev) => prev + `\n\n[Error: ${data.message}]`);
+            if (data.type === "chunk") setReviewContent((prev) => prev + data.content);
+            if (data.type === "done") setGeneratingReview(false);
+            if (data.type === "error") {
+              setReviewContent((prev) => `${prev}\n\n[${data.message}]`);
               setGeneratingReview(false);
             }
           } catch {
@@ -256,8 +238,8 @@ export default function SearchPage() {
           }
         }
       }
-    } catch (e) {
-      setReviewContent(`Failed to generate review: ${e}`);
+    } catch (err) {
+      setReviewContent(`${t(language, "reviewFailed")}: ${err}`);
     } finally {
       setGeneratingReview(false);
     }
@@ -265,14 +247,13 @@ export default function SearchPage() {
 
   const handleImport = async () => {
     if (selectedIds.size === 0) return;
-
     try {
       await api.post("papers/batch", {
-        json: selectedPapers.map((p) => toPaperCreate(p, "default")),
+        json: selectedPapers.map((paper) => toPaperCreate(paper, "default")),
       });
       setSelectedIds(new Set());
-    } catch (e) {
-      console.error("Import failed", e);
+    } catch (err) {
+      console.error("Import failed", err);
     }
   };
 
@@ -285,33 +266,28 @@ export default function SearchPage() {
             <div>
               <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.2em] text-cyan-500">
                 <Layers size={14} />
-                Research Radar
+                {t(language, "researchRadar")}
               </div>
-              <h1 className="mt-2 text-3xl font-semibold text-foreground">文献检索</h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                arXiv、Semantic Scholar、DBLP 多源并行检索
-              </p>
+              <h1 className="mt-2 text-3xl font-semibold text-foreground">{t(language, "searchTitle")}</h1>
+              <p className="mt-1 text-sm text-muted-foreground">{t(language, "searchSubtitle")}</p>
             </div>
 
             <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-border bg-background/70 text-center text-xs">
-              <Metric label="结果" value={String(totalCount || papers.length)} />
-              <Metric label="已选" value={String(selectedIds.size)} />
-              <Metric label="来源" value={String(Object.keys(sourceBreakdown).length || sources.length)} />
+              <Metric label={t(language, "metricResults")} value={String(totalCount || papers.length)} />
+              <Metric label={t(language, "selected")} value={String(selectedIds.size)} />
+              <Metric label={t(language, "sources")} value={String(Object.keys(sourceBreakdown).length || sources.length)} />
             </div>
           </div>
 
           <form onSubmit={handleSearch} className="flex flex-col gap-3">
             <div className="flex flex-col gap-3 md:flex-row">
               <div className="relative min-w-0 flex-1">
-                <Search
-                  size={18}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                />
+                <Search size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="输入研究方向、方法或论文关键词"
+                  placeholder={t(language, "searchPlaceholder")}
                   className="h-12 w-full rounded-lg border border-input bg-background pl-10 pr-4 text-sm text-foreground outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/25"
                 />
               </div>
@@ -321,7 +297,7 @@ export default function SearchPage() {
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-foreground px-5 text-sm font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-                {loading ? "检索中" : "检索"}
+                {loading ? t(language, "searching") : t(language, "searchButton")}
               </button>
             </div>
 
@@ -340,8 +316,8 @@ export default function SearchPage() {
                       sourceError
                         ? "border-destructive/60 bg-destructive/10 text-destructive"
                         : active
-                        ? "border-cyan-400/60 bg-cyan-400/10 text-cyan-600 dark:text-cyan-300"
-                        : "border-border bg-background text-muted-foreground hover:text-foreground"
+                          ? "border-cyan-400/60 bg-cyan-400/10 text-cyan-600 dark:text-cyan-300"
+                          : "border-border bg-background text-muted-foreground hover:text-foreground"
                     )}
                   >
                     {sourceError ? <AlertCircle size={14} /> : active ? <Check size={14} /> : <Database size={14} />}
@@ -370,7 +346,7 @@ export default function SearchPage() {
       {papers.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
           <div className="text-sm text-muted-foreground">
-            共 {totalCount} 篇论文，已选 {selectedIds.size} 篇
+            {totalCount} {t(language, "selectedSummary")} {selectedIds.size}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -379,7 +355,7 @@ export default function SearchPage() {
               className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Database size={16} />
-              导入选中
+              {t(language, "importSelected")}
             </button>
             <button
               onClick={handleGenerateReview}
@@ -387,7 +363,7 @@ export default function SearchPage() {
               className="inline-flex h-9 items-center gap-2 rounded-md bg-violet-600 px-3 text-sm font-medium text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {generatingReview ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              {generatingReview ? "生成中" : "生成综述"}
+              {generatingReview ? t(language, "generating") : t(language, "generateReview")}
             </button>
           </div>
         </div>
@@ -398,13 +374,11 @@ export default function SearchPage() {
           <div className="border-b border-border bg-gradient-to-r from-cyan-500/10 via-violet-500/10 to-amber-400/10 px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-foreground">Selected-paper AI workspace</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  Ask across selected papers or generate a structured comparison matrix.
-                </div>
+                <div className="text-sm font-semibold text-foreground">{t(language, "selectedWorkspaceTitle")}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{t(language, "selectedWorkspaceSubtitle")}</div>
               </div>
               <div className="rounded-md border border-border bg-background/70 px-2.5 py-1 text-xs text-muted-foreground">
-                {selectedIds.size} selected
+                {selectedIds.size} {t(language, "selectedCount")}
               </div>
             </div>
           </div>
@@ -415,7 +389,7 @@ export default function SearchPage() {
                 <input
                   value={askQuestion}
                   onChange={(e) => setAskQuestion(e.target.value)}
-                  placeholder="例如：这些论文的共同方法和主要差异是什么？"
+                  placeholder={t(language, "askPlaceholder")}
                   className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/25"
                 />
                 <button
@@ -424,19 +398,14 @@ export default function SearchPage() {
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-cyan-600 px-4 text-sm font-medium text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {asking ? <Loader2 size={16} className="animate-spin" /> : <MessageSquare size={16} />}
-                  Ask
+                  {t(language, "ask")}
                 </button>
               </div>
 
-              {askStatus && (
-                <div className="mt-2 text-xs text-cyan-600 dark:text-cyan-300">{askStatus}</div>
-              )}
+              {askStatus && <div className="mt-2 text-xs text-cyan-600 dark:text-cyan-300">{askStatus}</div>}
               {askAnswer && (
                 <div className="mt-3 max-h-56 overflow-auto rounded-md border border-border bg-background/70 p-3 text-sm leading-6 text-muted-foreground">
-                  <div
-                    className="prose prose-sm max-w-none dark:prose-invert"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(askAnswer) }}
-                  />
+                  <div className="prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(askAnswer) }} />
                 </div>
               )}
             </div>
@@ -448,15 +417,15 @@ export default function SearchPage() {
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {comparing ? <Loader2 size={16} className="animate-spin" /> : <Table2 size={16} />}
-                Compare
+                {t(language, "compare")}
               </button>
-              <div className="text-xs text-muted-foreground">2+ papers required</div>
+              <div className="text-xs text-muted-foreground">{t(language, "compareRequires")}</div>
             </div>
           </div>
 
           {comparisonTable && (
             <div className="border-t border-border p-4">
-              <PaperComparisonTable data={comparisonTable} />
+              <PaperComparisonTable data={comparisonTable} language={language} />
             </div>
           )}
         </section>
@@ -467,18 +436,16 @@ export default function SearchPage() {
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2 text-sm font-medium">
               <BookOpenCheck size={17} className="text-cyan-500" />
-              检索结果
+              {t(language, "searchResultsTitle")}
             </div>
-            {hasSearched && (
-              <span className="text-xs text-muted-foreground line-clamp-1">“{searchQuery}”</span>
-            )}
+            {hasSearched && <span className="line-clamp-1 text-xs text-muted-foreground">"{searchQuery}"</span>}
           </div>
 
           <div className="h-full overflow-auto p-3">
             {papers.length === 0 && !loading && (
               <EmptyState
-                title={hasSearched ? "没有检索到论文" : "输入关键词开始检索"}
-                body={hasSearched ? "可以调整关键词或切换数据源后重试。" : "结果会在这里实时汇总。"}
+                title={hasSearched ? t(language, "noPapersFound") : t(language, "startSearchTitle")}
+                body={hasSearched ? t(language, "noPapersFoundHelp") : t(language, "startSearchHelp")}
               />
             )}
 
@@ -505,49 +472,27 @@ export default function SearchPage() {
                     )}
                   >
                     <div className="flex items-start gap-4">
-                      <div
-                        className={clsx(
-                          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition",
-                          selected
-                            ? "border-cyan-400 bg-cyan-400 text-slate-950"
-                            : "border-border text-transparent group-hover:border-cyan-400"
-                        )}
-                      >
+                      <div className={clsx("mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition", selected ? "border-cyan-400 bg-cyan-400 text-slate-950" : "border-border text-transparent group-hover:border-cyan-400")}>
                         <Check size={14} />
                       </div>
 
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
-                            {paper.source || "unknown"}
-                          </span>
-                          {paper.year && (
-                            <span className="text-xs text-muted-foreground">{paper.year}</span>
-                          )}
+                          <span className="rounded bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">{paper.source || t(language, "unknown")}</span>
+                          {paper.year && <span className="text-xs text-muted-foreground">{paper.year}</span>}
                           {paper.citation_count > 0 && (
-                            <span className="text-xs text-amber-500">
-                              引用 {paper.citation_count}
-                            </span>
+                            <span className="text-xs text-amber-500">{t(language, "citations")} {paper.citation_count}</span>
                           )}
-                          {!paper.is_new && (
-                            <span className="text-xs text-cyan-500">已导入</span>
-                          )}
+                          {!paper.is_new && <span className="text-xs text-cyan-500">{t(language, "imported")}</span>}
                         </div>
 
-                        <h3 className="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-foreground">
-                          {paper.title}
-                        </h3>
-
+                        <h3 className="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-foreground">{paper.title}</h3>
                         <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
                           {paper.authors?.slice(0, 6).join(", ")}
                           {paper.authors && paper.authors.length > 6 ? " et al." : ""}
                         </p>
 
-                        {paper.abstract && (
-                          <p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                            {paper.abstract}
-                          </p>
-                        )}
+                        {paper.abstract && <p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{paper.abstract}</p>}
 
                         <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                           <span className="inline-flex items-center gap-1">
@@ -563,7 +508,7 @@ export default function SearchPage() {
                               className="inline-flex items-center gap-1 text-cyan-600 hover:underline dark:text-cyan-300"
                             >
                               <ExternalLink size={13} />
-                              原文
+                              {t(language, "originalPaper")}
                             </a>
                           )}
                         </div>
@@ -580,29 +525,20 @@ export default function SearchPage() {
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Sparkles size={17} className="text-violet-500" />
-              文献综述
+              {t(language, "literatureReview")}
             </div>
             {generatingReview && (
               <span className="inline-flex items-center gap-1 text-xs text-violet-500">
                 <Loader2 size={13} className="animate-spin" />
-                生成中
+                {t(language, "generating")}
               </span>
             )}
           </div>
-          <div
-            ref={reviewRef}
-            className="h-full overflow-auto p-4 text-sm leading-6 text-muted-foreground"
-          >
+          <div ref={reviewRef} className="h-full overflow-auto p-4 text-sm leading-6 text-muted-foreground">
             {reviewContent ? (
-              <div
-                className="prose prose-sm max-w-none dark:prose-invert"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(reviewContent) }}
-              />
+              <div className="prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(reviewContent) }} />
             ) : (
-              <EmptyState
-                title="选择论文生成综述"
-                body="选中结果后可生成方法对比型综述。"
-              />
+              <EmptyState title={t(language, "selectPapersReviewTitle")} body={t(language, "selectPapersReviewBody")} />
             )}
           </div>
         </section>
@@ -632,22 +568,22 @@ function EmptyState({ title, body }: { title: string; body: string }) {
   );
 }
 
-function PaperComparisonTable({ data }: { data: ComparisonTable }) {
+function PaperComparisonTable({ data, language }: { data: ComparisonTable; language: "en" | "zh" }) {
   const dimensions = data.table.length > 0 ? Object.keys(data.table[0].values || {}) : [];
 
   return (
     <div className="min-w-0">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-sm font-semibold text-foreground">Comparison matrix</div>
-        <div className="text-xs text-muted-foreground">{data.table.length} papers</div>
+        <div className="text-sm font-semibold text-foreground">{t(language, "comparisonMatrix")}</div>
+        <div className="text-xs text-muted-foreground">{data.table.length} {t(language, "paperCount")}</div>
       </div>
       <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full min-w-[780px] border-collapse text-xs">
           <thead>
             <tr className="bg-muted/60 text-muted-foreground">
-              <th className="border-b border-r border-border px-3 py-2 text-left font-medium">Title</th>
-              <th className="border-b border-r border-border px-3 py-2 text-left font-medium">Year</th>
-              <th className="border-b border-r border-border px-3 py-2 text-left font-medium">Venue</th>
+              <th className="border-b border-r border-border px-3 py-2 text-left font-medium">{t(language, "tableTitle")}</th>
+              <th className="border-b border-r border-border px-3 py-2 text-left font-medium">{t(language, "tableYear")}</th>
+              <th className="border-b border-r border-border px-3 py-2 text-left font-medium">{t(language, "tableVenue")}</th>
               {dimensions.map((dimension) => (
                 <th key={dimension} className="border-b border-r border-border px-3 py-2 text-left font-medium">
                   {dimension.replace(/_/g, " ")}
@@ -658,9 +594,7 @@ function PaperComparisonTable({ data }: { data: ComparisonTable }) {
           <tbody>
             {data.table.map((row) => (
               <tr key={row.id} className="align-top hover:bg-muted/30">
-                <td className="max-w-[260px] border-r border-border px-3 py-2 font-medium text-foreground">
-                  {row.title}
-                </td>
+                <td className="max-w-[260px] border-r border-border px-3 py-2 font-medium text-foreground">{row.title}</td>
                 <td className="border-r border-border px-3 py-2 text-muted-foreground">{row.year || "-"}</td>
                 <td className="border-r border-border px-3 py-2 text-muted-foreground">{row.venue || "-"}</td>
                 {dimensions.map((dimension) => (
