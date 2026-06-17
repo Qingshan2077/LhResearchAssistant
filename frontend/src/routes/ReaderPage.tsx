@@ -1,9 +1,17 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { api, type Paper } from "../lib/api";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
 import { ArrowLeft, Download, FileText, Brain, MessageSquare, BookOpen } from "lucide-react";
-import { usePaperStore } from "../stores/paperStore";
+import ReactFlow, {
+  Background,
+  Controls,
+  type Edge,
+  type Node,
+  useEdgesState,
+  useNodesState,
+} from "reactflow";
+import "reactflow/dist/style.css";
 
 type Tab = "structure" | "mindmap" | "notes" | "chat";
 
@@ -15,7 +23,6 @@ export default function ReaderPage() {
   const [parsing, setParsing] = useState(false);
   const [notes, setNotes] = useState("");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [pageNum, setPageNum] = useState(1);
 
   const mindmapData = useKnowledgeStore((s) => s.mindmapData);
   const fetchMindMap = useKnowledgeStore((s) => s.fetchMindMap);
@@ -145,26 +152,11 @@ export default function ReaderPage() {
           </div>
           <div className="flex-1 flex items-center justify-center bg-muted/20">
             {paper.pdf_path ? (
-              <div className="text-center p-8">
-                <FileText size={48} className="mx-auto text-muted-foreground mb-4" />
-                <p className="text-sm text-muted-foreground">
-                  PDF 已在本地缓存
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {paper.pdf_path}
-                </p>
-                <button
-                  onClick={() => {
-                    // 简单的 PDF 预览（使用浏览器的 PDF 查看器）
-                    if (pdfUrl) {
-                      window.open(pdfUrl, "_blank");
-                    }
-                  }}
-                  className="mt-4 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm"
-                >
-                  在浏览器中打开 PDF
-                </button>
-              </div>
+              <iframe
+                title={paper.title}
+                src={pdfUrl || `/api/v1/papers/${id}/pdf`}
+                className="h-full w-full border-0 bg-background"
+              />
             ) : (
               <div className="text-center p-8 text-muted-foreground">
                 <FileText size={48} className="mx-auto mb-4 opacity-50" />
@@ -307,43 +299,94 @@ function Section({ title, content }: { title: string; content: string }) {
   );
 }
 
-function MindMapView({ nodes }: { nodes: Array<{ id: string; label: string; node_type: string; content: string; position: { x: number; y: number }; parent_id: string | null }> }) {
-  // 树状显示
-  const root = nodes.find((n) => !n.parent_id);
-  const children = (parentId: string | null) =>
-    nodes.filter((n) => n.parent_id === parentId);
+type MindMapNode = {
+  id: string;
+  label: string;
+  node_type: string;
+  content: string;
+  position: { x: number; y: number };
+  parent_id: string | null;
+};
 
-  const renderNode = (node: (typeof nodes)[0], depth: number = 0) => {
-    const kids = children(node.id);
-    const typeColors: Record<string, string> = {
-      root: "bg-primary/10 border-primary/30",
-      problem: "bg-red-500/10 border-red-500/30",
-      method: "bg-blue-500/10 border-blue-500/30",
-      sub_method: "bg-cyan-500/10 border-cyan-500/30",
-      experiment: "bg-green-500/10 border-green-500/30",
-      conclusion: "bg-purple-500/10 border-purple-500/30",
-    };
+function MindMapView({ nodes }: { nodes: MindMapNode[] }) {
+  const { flowNodes, flowEdges } = useMemo(() => toFlowElements(nodes), [nodes]);
+  const [reactFlowNodes, setReactFlowNodes, onNodesChange] = useNodesState(flowNodes);
+  const [reactFlowEdges, setReactFlowEdges, onEdgesChange] = useEdgesState(flowEdges);
 
-    return (
-      <div key={node.id} className="mb-2">
-        <div
-          className={`p-2 rounded-lg border text-xs ${
-            typeColors[node.node_type] || "bg-muted/30 border-border"
-          }`}
-          style={{ marginLeft: depth * 20 }}
-          title={node.content}
-        >
-          <strong className="text-xs">{node.label}</strong>
-        </div>
-        {kids.length > 0 && (
-          <div className="ml-4 border-l border-border pl-3 mt-1">
-            {kids.map((kid) => renderNode(kid, depth + 1))}
-          </div>
-        )}
-      </div>
-    );
+  useEffect(() => {
+    setReactFlowNodes(flowNodes);
+    setReactFlowEdges(flowEdges);
+  }, [flowNodes, flowEdges, setReactFlowEdges, setReactFlowNodes]);
+
+  if (nodes.length === 0) {
+    return <div className="text-muted-foreground text-sm">Empty mind map</div>;
+  }
+
+  return (
+    <div className="h-full min-h-[420px] overflow-hidden rounded-lg border border-border bg-background">
+      <ReactFlow
+        key={nodes.map((node) => node.id).join(":")}
+        nodes={reactFlowNodes}
+        edges={reactFlowEdges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        fitView
+        nodesDraggable
+        panOnDrag
+      >
+        <Background gap={16} color="hsl(215 20.2% 65.1% / 0.22)" />
+        <Controls />
+      </ReactFlow>
+    </div>
+  );
+}
+
+function toFlowElements(nodes: MindMapNode[]): { flowNodes: Node[]; flowEdges: Edge[] } {
+  const typeStyles: Record<string, CSSProperties> = {
+    root: { borderColor: "#60a5fa", background: "rgba(59, 130, 246, 0.14)" },
+    problem: { borderColor: "#f87171", background: "rgba(239, 68, 68, 0.12)" },
+    method: { borderColor: "#38bdf8", background: "rgba(14, 165, 233, 0.12)" },
+    sub_method: { borderColor: "#22d3ee", background: "rgba(34, 211, 238, 0.12)" },
+    experiment: { borderColor: "#34d399", background: "rgba(16, 185, 129, 0.12)" },
+    conclusion: { borderColor: "#a78bfa", background: "rgba(139, 92, 246, 0.12)" },
   };
 
-  if (!root) return <div className="text-muted-foreground text-sm">Empty mind map</div>;
-  return <div className="text-sm">{renderNode(root)}</div>;
+  const flowNodes = nodes.map<Node>((node) => ({
+    id: node.id,
+    position: node.position,
+    data: {
+      label: (
+        <div title={node.content} className="max-w-[180px]">
+          <div className="text-xs font-semibold">{node.label}</div>
+          {node.content && (
+            <div className="mt-1 line-clamp-2 text-[10px] text-muted-foreground">
+              {node.content}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    style: {
+      width: 190,
+      borderRadius: 8,
+      border: "1px solid var(--color-border)",
+      color: "var(--color-foreground)",
+      fontSize: 12,
+      padding: 8,
+      ...(typeStyles[node.node_type] || {}),
+    },
+  }));
+
+  const flowEdges = nodes
+    .filter((node) => node.parent_id)
+    .map<Edge>((node) => ({
+      id: `${node.parent_id}->${node.id}`,
+      source: node.parent_id as string,
+      target: node.id,
+      type: "smoothstep",
+      animated: node.node_type === "method",
+      style: { stroke: "hsl(215 20.2% 65.1%)" },
+    }));
+
+  return { flowNodes, flowEdges };
 }

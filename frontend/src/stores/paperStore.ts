@@ -43,7 +43,13 @@ export const usePaperStore = create<PaperStore>((set, get) => ({
     try {
       const resp = await api
         .post("search", {
-          json: { query, sources, max_results_per_source: 50, sort_by: "relevance" },
+          json: {
+            project_id: "default",
+            query,
+            sources,
+            max_results_per_source: 50,
+            sort_by: "relevance",
+          },
         })
         .json<SearchResponse>();
       set({

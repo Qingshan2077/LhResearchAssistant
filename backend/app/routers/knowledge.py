@@ -55,6 +55,7 @@ def get_knowledge_graph(project_id: str | None = None, db: Session = Depends(get
 
     nodes = []
     edges = []
+    concept_ids = set()
 
     for paper in papers:
         # 论文节点
@@ -74,12 +75,14 @@ def get_knowledge_graph(project_id: str | None = None, db: Session = Depends(get
         # 关键词节点
         for kw in (paper.keywords or []):
             kw_id = f"concept:{kw.lower().replace(' ', '_')}"
-            nodes.append({
-                "id": kw_id,
-                "type": "concept",
-                "label": kw,
-                "group": "concept",
-            })
+            if kw_id not in concept_ids:
+                nodes.append({
+                    "id": kw_id,
+                    "type": "concept",
+                    "label": kw,
+                    "group": "concept",
+                })
+                concept_ids.add(kw_id)
             edges.append({
                 "source": f"paper:{paper.id}",
                 "target": kw_id,

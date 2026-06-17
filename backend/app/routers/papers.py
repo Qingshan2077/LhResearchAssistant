@@ -4,6 +4,7 @@ import os
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from sse_starlette.sse import EventSourceResponse
@@ -18,6 +19,23 @@ from app.services.pdf_parser import PDFParser
 from app.agents.read_agent import parse_paper_structure
 
 router = APIRouter()
+
+
+def _ensure_project(db: Session, project_id: str | None) -> str | None:
+    if not project_id:
+        return None
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project:
+        return project_id
+
+    db.add(Project(
+        id=project_id,
+        name="Default" if project_id == "default" else project_id,
+        description="Auto-created project for imported papers.",
+    ))
+    db.flush()
+    return project_id
 
 
 def _paper_to_response(paper: Paper, is_new: bool = False) -> dict:
@@ -108,8 +126,9 @@ def get_paper(paper_id: str, db: Session = Depends(get_db)):
 @router.post("/papers")
 def create_paper(req: PaperCreate, db: Session = Depends(get_db)):
     """手动创建论文"""
+    project_id = _ensure_project(db, req.project_id)
     paper = Paper(
-        project_id=req.project_id,
+        project_id=project_id,
         title=req.title,
         authors=req.authors,
         abstract=req.abstract,
@@ -134,19 +153,33 @@ def create_paper(req: PaperCreate, db: Session = Depends(get_db)):
 def batch_create_papers(papers: list[PaperCreate], db: Session = Depends(get_db)):
     """批量导入论文（从检索结果导入时使用）"""
     created = []
+    imported = 0
+    skipped = 0
+
     for req in papers:
+        project_id = _ensure_project(db, req.project_id)
+
         # 检查是否已存在（通过 arxiv_id 或 doi）
         existing = None
         if req.arxiv_id:
-            existing = db.query(Paper).filter(Paper.arxiv_id == req.arxiv_id).first()
+            existing = (
+                db.query(Paper)
+                .filter(Paper.project_id == project_id, Paper.arxiv_id == req.arxiv_id)
+                .first()
+            )
         if not existing and req.doi:
-            existing = db.query(Paper).filter(Paper.doi == req.doi).first()
+            existing = (
+                db.query(Paper)
+                .filter(Paper.project_id == project_id, Paper.doi == req.doi)
+                .first()
+            )
         if existing:
             created.append(_paper_to_response(existing))
+            skipped += 1
             continue
 
         paper = Paper(
-            project_id=req.project_id,
+            project_id=project_id,
             title=req.title,
             authors=req.authors,
             abstract=req.abstract,
@@ -162,10 +195,12 @@ def batch_create_papers(papers: list[PaperCreate], db: Session = Depends(get_db)
             pdf_url=req.pdf_url,
         )
         db.add(paper)
+        db.flush()
         created.append(_paper_to_response(paper))
+        imported += 1
 
     db.commit()
-    return {"imported": len([c for c in created]), "papers": created}
+    return {"imported": imported, "skipped": skipped, "papers": created}
 
 
 @router.patch("/papers/{paper_id}")
@@ -207,6 +242,8 @@ async def upload_paper(
     db: Session = Depends(get_db),
 ):
     """上传 PDF 文件，提取元数据并创建论文记录"""
+    project_id = _ensure_project(db, project_id or "default") or "default"
+
     # 保存文件
     cache_dir = Path(settings.papers_cache_dir)
     file_ext = Path(file.filename).suffix if file.filename else ".pdf"
@@ -252,6 +289,20 @@ async def parse_paper(paper_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="PDF file not found")
 
     return EventSourceResponse(parse_paper_structure(paper, db))
+
+
+@router.get("/papers/{paper_id}/pdf")
+async def get_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
+    """返回论文 PDF 文件流。"""
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper or not paper.pdf_path:
+        raise HTTPException(status_code=404, detail="PDF file not found")
+
+    pdf_path = Path(paper.pdf_path)
+    if not pdf_path.exists() or not pdf_path.is_file():
+        raise HTTPException(status_code=404, detail="PDF file not found")
+
+    return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
 
 @router.post("/papers/{paper_id}/relations")

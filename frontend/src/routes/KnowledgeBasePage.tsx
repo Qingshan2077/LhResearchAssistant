@@ -1,16 +1,115 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
 import { useNavigate } from "react-router-dom";
 import { Network, Search as SearchIcon, Loader2, BookOpen } from "lucide-react";
+import cytoscape from "cytoscape";
 
 export default function KnowledgeBasePage() {
   const navigate = useNavigate();
   const { graphData, fetchGraph, query, queryResult, querying } = useKnowledgeStore();
   const [searchInput, setSearchInput] = useState("");
+  const graphRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchGraph("default");
   }, [fetchGraph]);
+
+  useEffect(() => {
+    if (!graphRef.current || !graphData || graphData.nodes.length === 0) return;
+
+    const cy = cytoscape({
+      container: graphRef.current,
+      elements: [
+        ...graphData.nodes.map((node) => ({
+          data: {
+            id: node.id,
+            label: node.label,
+            type: node.type,
+            group: node.group,
+            ...node.data,
+          },
+          classes: node.type,
+        })),
+        ...graphData.edges.map((edge, index) => ({
+          data: {
+            id: `${edge.source}->${edge.target}:${index}`,
+            source: edge.source,
+            target: edge.target,
+            type: edge.type,
+            label: edge.label || "",
+          },
+        })),
+      ],
+      style: [
+        {
+          selector: "node",
+          style: {
+            label: "data(label)",
+            "font-size": 10,
+            color: "hsl(210 40% 98%)",
+            "text-outline-color": "hsl(222.2 84% 4.9%)",
+            "text-outline-width": 2,
+            "text-wrap": "wrap",
+            "text-max-width": 140,
+          },
+        },
+        {
+          selector: ".paper",
+          style: {
+            "background-color": "#3b82f6",
+            width: 34,
+            height: 34,
+            "border-color": "#93c5fd",
+            "border-width": 2,
+          },
+        },
+        {
+          selector: ".concept",
+          style: {
+            "background-color": "#10b981",
+            width: 22,
+            height: 22,
+          },
+        },
+        {
+          selector: "edge",
+          style: {
+            width: 1.2,
+            "line-color": "#475569",
+            "target-arrow-color": "#475569",
+            "target-arrow-shape": "triangle",
+            "curve-style": "bezier",
+            opacity: 0.75,
+          },
+        },
+        {
+          selector: "node:selected",
+          style: {
+            "border-color": "#22d3ee",
+            "border-width": 4,
+          },
+        },
+      ],
+      layout: {
+        name: "cose",
+        padding: 36,
+        animate: true,
+        nodeRepulsion: 6000,
+        idealEdgeLength: 120,
+      },
+    });
+
+    cy.on("tap", ".paper", (event) => {
+      const nodeId = event.target.id();
+      if (nodeId.startsWith("paper:")) {
+        navigate(`/papers/${nodeId.replace("paper:", "")}`);
+      }
+    });
+
+    return () => {
+      cy.destroy();
+    };
+  }, [graphData, navigate]);
 
   const handleQuery = () => {
     if (searchInput.trim()) {
@@ -65,38 +164,7 @@ export default function KnowledgeBasePage() {
           </div>
           <div className="flex-1 flex items-center justify-center p-4">
             {graphData && graphData.nodes.length > 0 ? (
-              <div className="w-full h-full flex flex-wrap gap-2 overflow-auto p-2">
-                {/* 简单的标签云式展示（Phase 2 替换为 Cytoscape.js） */}
-                {graphData.nodes
-                  .filter((n) => n.type === "paper")
-                  .slice(0, 50)
-                  .map((node) => (
-                    <button
-                      key={node.id}
-                      onClick={() => {
-                        const pid = node.id.replace("paper:", "");
-                        navigate(`/papers/${pid}`);
-                      }}
-                      className="px-3 py-1.5 rounded-full text-xs border border-border hover:border-primary hover:bg-primary/5 transition-colors"
-                    >
-                      {node.label.length > 30
-                        ? node.label.slice(0, 30) + "…"
-                        : node.label}
-                    </button>
-                  ))}
-                {/* 概念节点 */}
-                {graphData.nodes
-                  .filter((n) => n.type === "concept")
-                  .slice(0, 20)
-                  .map((node) => (
-                    <span
-                      key={node.id}
-                      className="px-2 py-1 rounded-full text-xs bg-primary/10 text-primary"
-                    >
-                      #{node.label}
-                    </span>
-                  ))}
-              </div>
+              <div ref={graphRef} className="h-full w-full min-h-[360px]" />
             ) : (
               <div className="text-center text-muted-foreground">
                 <Network size={48} className="mx-auto mb-4 opacity-30" />

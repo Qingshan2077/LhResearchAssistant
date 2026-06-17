@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── Paper ──────────────────────────────────────────
@@ -76,7 +76,8 @@ class SearchResponse(BaseModel):
 
 class ImportRequest(BaseModel):
     project_id: str
-    paper_ids: list[str]
+    paper_ids: list[str] = Field(default_factory=list)
+    papers: list[PaperCreate] = Field(default_factory=list)
 
 
 class ImportResponse(BaseModel):
