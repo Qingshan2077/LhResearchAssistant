@@ -193,6 +193,67 @@ class CitationVerifyRequest(BaseModel):
     bibtex_entries: list[str] = Field(default_factory=list)
 
 
+# ── Review / Venue ───────────────────────────────
+class VenueRecommendRequest(BaseModel):
+    title: str
+    abstract: str = ""
+    keywords: list[str] = Field(default_factory=list)
+    method_description: str = ""
+
+
+class VenueResult(BaseModel):
+    name: str
+    full_name: str = ""
+    field: str = ""
+    ccf_rank: str = ""
+    acceptance_rate: float = 0
+    match_score: float = 0
+    match_reason: str = ""
+    avg_review_weeks: int = 0
+    paper_type: str = "conference"
+
+
+class VenueRecommendResponse(BaseModel):
+    venues: list[VenueResult]
+
+
+class FormatCheckRequest(BaseModel):
+    writing_project_id: str
+    target_venue: str
+
+
+class FormatIssue(BaseModel):
+    severity: str  # error / warning / info
+    rule: str
+    message: str
+    line: int = 0
+
+
+class FormatCheckResult(BaseModel):
+    passed: bool
+    issues: list[FormatIssue]
+    total_pages_estimate: int
+
+
+class ReviewSimulateRequest(BaseModel):
+    writing_project_id: str
+    venue: str = ""
+    reviewer_count: int = 3
+
+
+class CoverLetterRequest(BaseModel):
+    writing_project_id: str
+    venue: str
+    editor_name: str = "Editor"
+    additional_notes: str = ""
+
+
+class RebuttalRequest(BaseModel):
+    writing_project_id: str
+    review_text: str
+    response_style: str = "detailed"  # detailed / concise
+
+
 # ── LLM Provider ─────────────────────────────────
 class ProviderCreate(BaseModel):
     name: str

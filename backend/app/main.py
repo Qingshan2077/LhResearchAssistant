@@ -33,7 +33,7 @@ app.add_middleware(
 
 # ── 路由注册 ──────────────────────────────────────────
 # 每个路由模块注册时自动挂载
-from app.routers import health, search, papers, knowledge, settings as settings_router, streaming, ideas, writing
+from app.routers import health, search, papers, knowledge, settings as settings_router, streaming, ideas, writing, review
 
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(search.router, prefix="/api/v1", tags=["search"])
@@ -43,6 +43,7 @@ app.include_router(settings_router.router, prefix="/api/v1", tags=["settings"])
 app.include_router(streaming.router, prefix="/api/v1", tags=["streaming"])
 app.include_router(ideas.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(writing.router, prefix="/api/v1", tags=["writing"])
+app.include_router(review.router, prefix="/api/v1", tags=["review"])
 
 
 if __name__ == "__main__":
