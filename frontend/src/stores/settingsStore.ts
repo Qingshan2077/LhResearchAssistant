@@ -13,7 +13,7 @@ interface SettingsStore {
   testProvider: (id: string) => Promise<{ success: boolean; latency_ms: number }>;
 }
 
-export const useSettingsStore = create<SettingsStore>((set) => ({
+export const useSettingsStore = create<SettingsStore>((set, get) => ({
   theme: "dark",
   providers: [],
   activeProviderId: null,
@@ -39,12 +39,12 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
 
   addProvider: async (p) => {
     await api.post("settings/providers", { json: p });
-    await set.getState().fetchProviders();
+    await get().fetchProviders();
   },
 
   removeProvider: async (id) => {
     await api.delete(`settings/providers/${id}`);
-    await set.getState().fetchProviders();
+    await get().fetchProviders();
   },
 
   testProvider: async (id) => {

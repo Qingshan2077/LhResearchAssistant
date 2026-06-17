@@ -5,8 +5,10 @@ interface PaperStore {
   papers: Paper[];
   selectedPaperId: string | null;
   loading: boolean;
+  error: string | null;
   searchQuery: string;
   totalCount: number;
+  sourceBreakdown: Record<string, number>;
   page: number;
   pageSize: number;
 
@@ -22,13 +24,22 @@ export const usePaperStore = create<PaperStore>((set, get) => ({
   papers: [],
   selectedPaperId: null,
   loading: false,
+  error: null,
   searchQuery: "",
   totalCount: 0,
+  sourceBreakdown: {},
   page: 1,
   pageSize: 20,
 
   search: async (query, sources = ["arxiv", "semantic_scholar", "dblp"]) => {
-    set({ loading: true, searchQuery: query });
+    set({
+      loading: true,
+      error: null,
+      searchQuery: query,
+      papers: [],
+      totalCount: 0,
+      sourceBreakdown: {},
+    });
     try {
       const resp = await api
         .post("search", {
@@ -36,12 +47,16 @@ export const usePaperStore = create<PaperStore>((set, get) => ({
         })
         .json<SearchResponse>();
       set({
-        papers: resp.papers,
-        totalCount: resp.total_count,
+        papers: Array.isArray(resp.papers) ? resp.papers : [],
+        totalCount: resp.total_count ?? resp.papers?.length ?? 0,
+        sourceBreakdown: resp.source_breakdown ?? {},
         loading: false,
       });
-    } catch {
-      set({ loading: false });
+    } catch (error) {
+      set({
+        loading: false,
+        error: error instanceof Error ? error.message : "Search failed",
+      });
     }
   },
 
@@ -52,7 +67,7 @@ export const usePaperStore = create<PaperStore>((set, get) => ({
   },
 
   fetchPapers: async (projectId, params = {}) => {
-    set({ loading: true });
+    set({ loading: true, error: null });
     try {
       const searchParams = new URLSearchParams({
         project_id: projectId,
@@ -62,8 +77,11 @@ export const usePaperStore = create<PaperStore>((set, get) => ({
       });
       const resp = await api.get(`papers?${searchParams}`).json<{ items: Paper[]; total: number }>();
       set({ papers: resp.items, totalCount: resp.total, loading: false });
-    } catch {
-      set({ loading: false });
+    } catch (error) {
+      set({
+        loading: false,
+        error: error instanceof Error ? error.message : "Failed to load papers",
+      });
     }
   },
 

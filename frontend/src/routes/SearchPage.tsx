@@ -1,22 +1,62 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  AlertCircle,
+  BookOpenCheck,
+  Check,
+  Database,
+  ExternalLink,
+  FileText,
+  Layers,
+  Loader2,
+  Search,
+  Sparkles,
+} from "lucide-react";
+import clsx from "clsx";
 import { usePaperStore } from "../stores/paperStore";
 import { api, type Paper } from "../lib/api";
 
+const SOURCE_OPTIONS = [
+  { id: "arxiv", label: "arXiv" },
+  { id: "semantic_scholar", label: "Semantic Scholar" },
+  { id: "dblp", label: "DBLP" },
+];
+
 export default function SearchPage() {
-  const { papers, loading, search, searchQuery, totalCount } = usePaperStore();
+  const { papers, loading, error, search, searchQuery, totalCount, sourceBreakdown } =
+    usePaperStore();
   const [query, setQuery] = useState("");
+  const [sources, setSources] = useState<string[]>(SOURCE_OPTIONS.map((s) => s.id));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [generatingReview, setGeneratingReview] = useState(false);
   const [reviewContent, setReviewContent] = useState("");
   const reviewRef = useRef<HTMLDivElement>(null);
 
-  const handleSearch = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      if (query.trim()) search(query.trim());
-    },
-    [query, search]
+  const selectedPapers = useMemo(
+    () => papers.filter((p) => selectedIds.has(p.id)),
+    [papers, selectedIds]
   );
+
+  const hasSearched = Boolean(searchQuery);
+
+  const handleSearch = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      const activeSources = sources.length ? sources : SOURCE_OPTIONS.map((s) => s.id);
+      const trimmed = query.trim();
+      if (!trimmed) return;
+
+      setSelectedIds(new Set());
+      setReviewContent("");
+      await search(trimmed, activeSources);
+    },
+    [query, search, sources]
+  );
+
+  const toggleSource = (source: string) => {
+    setSources((prev) =>
+      prev.includes(source) ? prev.filter((s) => s !== source) : [...prev, source]
+    );
+  };
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -32,52 +72,25 @@ export default function SearchPage() {
     setGeneratingReview(true);
     setReviewContent("");
 
-    const selectedPapers = papers.filter((p) => selectedIds.has(p.id));
     const projectId = "default";
 
-    // 先导入到本地
     try {
       await api.post("papers/batch", {
-        json: selectedPapers.map((p) => ({
-          project_id: projectId,
-          title: p.title,
-          authors: p.authors,
-          abstract: p.abstract,
-          year: p.year,
-          venue: p.venue,
-          doi: p.doi,
-          arxiv_id: p.arxiv_id,
-          source: p.source,
-          citation_count: p.citation_count,
-          keywords: p.keywords,
-          url: p.url,
-          pdf_url: p.pdf_url,
-        })),
+        json: selectedPapers.map((p) => toPaperCreate(p, projectId)),
       });
     } catch {
-      // 可能已导入，继续
+      // Papers may already exist locally. Continue and resolve imported IDs below.
     }
 
-    // 从后端获取导入后的 paper IDs
-    const resp = await api
-      .get("papers", { searchParams: { project_id: projectId, page_size: 500 } })
-      .json<{ items: Paper[] }>();
-
-    const importedIds = resp.items
-      .filter((p) => selectedPapers.some((sp) => sp.title === p.title))
-      .map((p) => p.id);
-
-    // SSE 流式接收综述
-    const token = localStorage.getItem("auth_token") || "";
-    const eventSource = new EventSource(
-      `/api/v1/search/generate-review`,
-      {
-        withCredentials: true,
-      }
-    );
-
-    // 使用 POST + SSE 的方式
     try {
+      const resp = await api
+        .get("papers", { searchParams: { project_id: projectId, page_size: 500 } })
+        .json<{ items: Paper[] }>();
+
+      const importedIds = resp.items
+        .filter((p) => selectedPapers.some((sp) => sp.title === p.title))
+        .map((p) => p.id);
+
       const response = await fetch("/api/v1/search/generate-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -88,6 +101,10 @@ export default function SearchPage() {
           language: "en",
         }),
       });
+
+      if (!response.ok) {
+        throw new Error(`Review request failed: ${response.status}`);
+      }
 
       const reader = response.body?.getReader();
       if (!reader) return;
@@ -104,49 +121,35 @@ export default function SearchPage() {
         buffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === "chunk") {
-                setReviewContent((prev) => prev + data.content);
-              } else if (data.type === "done") {
-                setGeneratingReview(false);
-              } else if (data.type === "error") {
-                setReviewContent((prev) => prev + `\n\n[Error: ${data.message}]`);
-                setGeneratingReview(false);
-              }
-            } catch {
-              // 忽略解析失败的行
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === "chunk") {
+              setReviewContent((prev) => prev + data.content);
+            } else if (data.type === "done") {
+              setGeneratingReview(false);
+            } else if (data.type === "error") {
+              setReviewContent((prev) => prev + `\n\n[Error: ${data.message}]`);
+              setGeneratingReview(false);
             }
+          } catch {
+            // Ignore malformed SSE rows.
           }
         }
       }
     } catch (e) {
       setReviewContent(`Failed to generate review: ${e}`);
+    } finally {
+      setGeneratingReview(false);
     }
-    setGeneratingReview(false);
   };
 
   const handleImport = async () => {
     if (selectedIds.size === 0) return;
-    const selectedPapers = papers.filter((p) => selectedIds.has(p.id));
+
     try {
       await api.post("papers/batch", {
-        json: selectedPapers.map((p) => ({
-          project_id: "default",
-          title: p.title,
-          authors: p.authors,
-          abstract: p.abstract,
-          year: p.year,
-          venue: p.venue,
-          doi: p.doi,
-          arxiv_id: p.arxiv_id,
-          source: p.source,
-          citation_count: p.citation_count,
-          keywords: p.keywords,
-          url: p.url,
-          pdf_url: p.pdf_url,
-        })),
+        json: selectedPapers.map((p) => toPaperCreate(p, "default")),
       });
       setSelectedIds(new Set());
     } catch (e) {
@@ -155,171 +158,322 @@ export default function SearchPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 h-full">
-      {/* 标题 */}
-      <div>
-        <h1 className="text-2xl font-bold">文献检索</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          搜索 arXiv、Semantic Scholar、DBLP 等数据库
-        </p>
-      </div>
+    <div className="flex h-full min-h-0 flex-col gap-5">
+      <section className="relative overflow-hidden rounded-lg border border-border bg-card p-5 shadow-sm">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyan-400 via-violet-500 to-amber-300" />
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.2em] text-cyan-500">
+                <Layers size={14} />
+                Research Radar
+              </div>
+              <h1 className="mt-2 text-3xl font-semibold text-foreground">文献检索</h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                arXiv、Semantic Scholar、DBLP 多源并行检索
+              </p>
+            </div>
 
-      {/* 搜索栏 */}
-      <form onSubmit={handleSearch} className="flex gap-3">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="输入研究方向关键词…"
-          className="flex-1 px-4 py-2.5 rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-        />
-        <button
-          type="submit"
-          disabled={loading || !query.trim()}
-          className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors font-medium"
-        >
-          {loading ? "搜索中…" : "搜索"}
-        </button>
-      </form>
+            <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-border bg-background/70 text-center text-xs">
+              <Metric label="结果" value={String(totalCount || papers.length)} />
+              <Metric label="已选" value={String(selectedIds.size)} />
+              <Metric label="来源" value={String(Object.keys(sourceBreakdown).length || sources.length)} />
+            </div>
+          </div>
 
-      {/* 操作栏 */}
-      {papers.length > 0 && (
-        <div className="flex items-center gap-3 text-sm">
-          <span className="text-muted-foreground">
-            共 {totalCount} 篇论文，已选 {selectedIds.size} 篇
-          </span>
-          {selectedIds.size > 0 && (
-            <>
+          <form onSubmit={handleSearch} className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 md:flex-row">
+              <div className="relative min-w-0 flex-1">
+                <Search
+                  size={18}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="输入研究方向、方法或论文关键词"
+                  className="h-12 w-full rounded-lg border border-input bg-background pl-10 pr-4 text-sm text-foreground outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/25"
+                />
+              </div>
               <button
-                onClick={handleImport}
-                className="px-3 py-1.5 rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+                type="submit"
+                disabled={loading || !query.trim()}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-foreground px-5 text-sm font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                导入选中
+                {loading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                {loading ? "检索中" : "检索"}
               </button>
-              <button
-                onClick={handleGenerateReview}
-                disabled={generatingReview}
-                className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-              >
-                {generatingReview ? "生成中…" : "生成综述"}
-              </button>
-            </>
-          )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {SOURCE_OPTIONS.map((source) => {
+                const active = sources.includes(source.id);
+                return (
+                  <button
+                    key={source.id}
+                    type="button"
+                    onClick={() => toggleSource(source.id)}
+                    className={clsx(
+                      "inline-flex h-8 items-center gap-2 rounded-md border px-3 text-xs font-medium transition",
+                      active
+                        ? "border-cyan-400/60 bg-cyan-400/10 text-cyan-600 dark:text-cyan-300"
+                        : "border-border bg-background text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {active ? <Check size={14} /> : <Database size={14} />}
+                    {source.label}
+                    {sourceBreakdown[source.id] !== undefined && (
+                      <span className="rounded bg-background/80 px-1.5 py-0.5">
+                        {sourceBreakdown[source.id]}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </form>
+        </div>
+      </section>
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <AlertCircle size={16} />
+          {error}
         </div>
       )}
 
-      <div className="flex gap-6 flex-1 min-h-0">
-        {/* 论文列表 */}
-        <div className="flex-1 overflow-auto">
-          {papers.length === 0 && !loading && (
-            <div className="flex items-center justify-center h-48 text-muted-foreground">
-              输入关键词开始搜索
-            </div>
-          )}
-
-          {loading && (
-            <div className="flex items-center justify-center h-48 text-muted-foreground">
-              正在并行搜索 arXiv + Semantic Scholar + DBLP…
-            </div>
-          )}
-
-          <div className="space-y-2">
-            {papers.map((paper) => (
-              <div
-                key={paper.id}
-                onClick={() => toggleSelect(paper.id)}
-                className={`p-4 rounded-lg border cursor-pointer transition-colors ${
-                  selectedIds.has(paper.id)
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:bg-muted/50"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-sm leading-snug line-clamp-2">
-                      {paper.title}
-                    </h3>
-                    <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
-                      {paper.authors?.slice(0, 5).join(", ")}
-                      {paper.authors && paper.authors.length > 5 ? " et al." : ""}
-                    </p>
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                      <span>{paper.year || "N/A"}</span>
-                      <span>{paper.venue || "N/A"}</span>
-                      {paper.citation_count > 0 && (
-                        <span>引用: {paper.citation_count}</span>
-                      )}
-                      <span className="px-1.5 py-0.5 rounded bg-secondary/50 text-xs">
-                        {paper.source}
-                      </span>
-                      {!paper.is_new && (
-                        <span className="text-primary text-xs">已导入</span>
-                      )}
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(paper.id)}
-                    onChange={() => toggleSelect(paper.id)}
-                    className="mt-1 shrink-0"
-                  />
-                </div>
-              </div>
-            ))}
+      {papers.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
+          <div className="text-sm text-muted-foreground">
+            共 {totalCount} 篇论文，已选 {selectedIds.size} 篇
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleImport}
+              disabled={selectedIds.size === 0}
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Database size={16} />
+              导入选中
+            </button>
+            <button
+              onClick={handleGenerateReview}
+              disabled={selectedIds.size === 0 || generatingReview}
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-violet-600 px-3 text-sm font-medium text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {generatingReview ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+              {generatingReview ? "生成中" : "生成综述"}
+            </button>
           </div>
         </div>
+      )}
 
-        {/* 综述面板 */}
-        {(reviewContent || generatingReview) && (
-          <div className="w-1/2 border border-border rounded-lg overflow-hidden flex flex-col">
-            <div className="px-4 py-2.5 border-b border-border bg-muted/30 font-medium text-sm">
-              文献综述
-              {generatingReview && (
-                <span className="ml-2 text-primary text-xs animate-pulse">生成中…</span>
-              )}
+      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.48fr)]">
+        <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <BookOpenCheck size={17} className="text-cyan-500" />
+              检索结果
             </div>
-            <div
-              ref={reviewRef}
-              className="flex-1 overflow-auto p-4 prose prose-sm dark:prose-invert max-w-none"
-            >
-              {reviewContent ? (
-                <div dangerouslySetInnerHTML={{ __html: renderMarkdown(reviewContent) }} />
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                  等待生成…
-                </div>
-              )}
+            {hasSearched && (
+              <span className="text-xs text-muted-foreground line-clamp-1">“{searchQuery}”</span>
+            )}
+          </div>
+
+          <div className="h-full overflow-auto p-3">
+            {papers.length === 0 && !loading && (
+              <EmptyState
+                title={hasSearched ? "没有检索到论文" : "输入关键词开始检索"}
+                body={hasSearched ? "可以调整关键词或切换数据源后重试。" : "结果会在这里实时汇总。"}
+              />
+            )}
+
+            {loading && (
+              <div className="grid gap-3">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div key={index} className="h-28 animate-pulse rounded-lg bg-muted" />
+                ))}
+              </div>
+            )}
+
+            <div className="grid gap-3">
+              {papers.map((paper) => {
+                const selected = selectedIds.has(paper.id);
+                return (
+                  <article
+                    key={paper.id}
+                    onClick={() => toggleSelect(paper.id)}
+                    className={clsx(
+                      "group cursor-pointer rounded-lg border bg-background p-4 transition",
+                      selected
+                        ? "border-cyan-400 shadow-[0_0_0_1px_rgba(34,211,238,0.35)]"
+                        : "border-border hover:border-cyan-400/50 hover:bg-muted/35"
+                    )}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div
+                        className={clsx(
+                          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition",
+                          selected
+                            ? "border-cyan-400 bg-cyan-400 text-slate-950"
+                            : "border-border text-transparent group-hover:border-cyan-400"
+                        )}
+                      >
+                        <Check size={14} />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+                            {paper.source || "unknown"}
+                          </span>
+                          {paper.year && (
+                            <span className="text-xs text-muted-foreground">{paper.year}</span>
+                          )}
+                          {paper.citation_count > 0 && (
+                            <span className="text-xs text-amber-500">
+                              引用 {paper.citation_count}
+                            </span>
+                          )}
+                          {!paper.is_new && (
+                            <span className="text-xs text-cyan-500">已导入</span>
+                          )}
+                        </div>
+
+                        <h3 className="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-foreground">
+                          {paper.title}
+                        </h3>
+
+                        <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                          {paper.authors?.slice(0, 6).join(", ")}
+                          {paper.authors && paper.authors.length > 6 ? " et al." : ""}
+                        </p>
+
+                        {paper.abstract && (
+                          <p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                            {paper.abstract}
+                          </p>
+                        )}
+
+                        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                          <span className="inline-flex items-center gap-1">
+                            <FileText size={13} />
+                            {paper.venue || "N/A"}
+                          </span>
+                          {paper.url && (
+                            <a
+                              href={paper.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 text-cyan-600 hover:underline dark:text-cyan-300"
+                            >
+                              <ExternalLink size={13} />
+                              原文
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </div>
-        )}
+        </section>
+
+        <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Sparkles size={17} className="text-violet-500" />
+              文献综述
+            </div>
+            {generatingReview && (
+              <span className="inline-flex items-center gap-1 text-xs text-violet-500">
+                <Loader2 size={13} className="animate-spin" />
+                生成中
+              </span>
+            )}
+          </div>
+          <div
+            ref={reviewRef}
+            className="h-full overflow-auto p-4 text-sm leading-6 text-muted-foreground"
+          >
+            {reviewContent ? (
+              <div
+                className="prose prose-sm max-w-none dark:prose-invert"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(reviewContent) }}
+              />
+            ) : (
+              <EmptyState
+                title="选择论文生成综述"
+                body="选中结果后可生成方法对比型综述。"
+              />
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
 }
 
-/** 简单的 Markdown 渲染（基础版，Phase 2 可换 marked/markdown-it） */
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-20 border-r border-border px-4 py-2 last:border-r-0">
+      <div className="text-lg font-semibold text-foreground">{value}</div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+function EmptyState({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-background/60 px-6 text-center">
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
+        <Search size={18} />
+      </div>
+      <div className="text-sm font-medium text-foreground">{title}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{body}</div>
+    </div>
+  );
+}
+
+function toPaperCreate(paper: Paper, projectId: string) {
+  return {
+    project_id: projectId,
+    title: paper.title,
+    authors: paper.authors,
+    abstract: paper.abstract,
+    year: paper.year,
+    venue: paper.venue,
+    paper_type: paper.paper_type,
+    doi: paper.doi,
+    arxiv_id: paper.arxiv_id,
+    source: paper.source,
+    citation_count: paper.citation_count,
+    keywords: paper.keywords,
+    url: paper.url,
+    pdf_url: paper.pdf_url,
+  };
+}
+
 function renderMarkdown(text: string): string {
-  return text
-    // 标题
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  return escaped
     .replace(/^### (.+)$/gm, "<h3>$1</h3>")
     .replace(/^## (.+)$/gm, "<h2>$1</h2>")
     .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-    // 粗体
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    // 列表
     .replace(/^- (.+)$/gm, "<li>$1</li>")
     .replace(/(<li>.*<\/li>\n?)+/g, "<ul>$&</ul>")
-    // 引用
-    .replace(/^> (.+)$/gm, "<blockquote>$1</blockquote>")
-    // 段落
-    .replace(/\n\n/g, "</p><p>")
-    // 代码块
+    .replace(/^&gt; (.+)$/gm, "<blockquote>$1</blockquote>")
     .replace(/```(\w*)\n([\s\S]*?)```/g, "<pre><code>$2</code></pre>")
-    // 行内代码
     .replace(/`(.+?)`/g, "<code>$1</code>")
-    // 换行
-    .replace(/\n/g, "<br/>")
-    .replace(/<br\/><\/p>/g, "</p>")
-    .replace(/<p>/g, "<p>")
-    .replace(/^(?!<[hplu])/gm, "");
+    .replace(/\n\n/g, "</p><p>")
+    .replace(/\n/g, "<br/>");
 }
