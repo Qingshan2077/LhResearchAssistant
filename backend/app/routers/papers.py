@@ -16,6 +16,7 @@ from app.models import (
 )
 from app.config import settings
 from app.services.pdf_parser import PDFParser
+from app.services.pdf_download import download_pdf
 from app.agents.read_agent import parse_paper_structure
 
 router = APIRouter()
@@ -150,8 +151,8 @@ def create_paper(req: PaperCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/papers/batch")
-def batch_create_papers(papers: list[PaperCreate], db: Session = Depends(get_db)):
-    """批量导入论文（从检索结果导入时使用）"""
+async def batch_create_papers(papers: list[PaperCreate], db: Session = Depends(get_db)):
+    """批量导入论文（从检索结果导入时使用），自动下载 PDF。"""
     created = []
     imported = 0
     skipped = 0
@@ -196,6 +197,14 @@ def batch_create_papers(papers: list[PaperCreate], db: Session = Depends(get_db)
         )
         db.add(paper)
         db.flush()
+
+        # 自动下载 PDF
+        if req.pdf_url and not paper.pdf_path:
+            local_path = await download_pdf(req.pdf_url, req.title)
+            if local_path:
+                paper.pdf_path = local_path
+                db.flush()
+
         created.append(_paper_to_response(paper))
         imported += 1
 
@@ -303,6 +312,28 @@ async def get_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="PDF file not found")
 
     return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path.name)
+
+
+@router.post("/papers/{paper_id}/download-pdf")
+async def download_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
+    """从外部 URL 下载 PDF 到本地缓存。"""
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    if paper.pdf_path and Path(paper.pdf_path).exists():
+        return {"status": "exists", "pdf_path": paper.pdf_path}
+
+    if not paper.pdf_url:
+        raise HTTPException(status_code=400, detail="No PDF URL available for this paper")
+
+    local_path = await download_pdf(paper.pdf_url, paper.title)
+    if not local_path:
+        raise HTTPException(status_code=502, detail="Failed to download PDF from source")
+
+    paper.pdf_path = local_path
+    db.commit()
+    return {"status": "downloaded", "pdf_path": local_path}
 
 
 @router.post("/papers/{paper_id}/relations")
