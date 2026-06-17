@@ -31,6 +31,26 @@ REVIEWER_ROLES = {
 }
 
 
+_CONTRACT_TEMPLATE = """\
+## Sprint Contract
+
+You must pre-commit your scoring criteria **before** seeing the paper content.
+Define the acceptance dimensions you will evaluate and the specific evidence
+patterns that will trigger each score level.
+
+Return a JSON object with:
+- "scoring_plan": array of objects, each containing:
+  - "dimension_id": short unique name
+  - "what_to_look_for": concrete signals to scan for
+  - "what_triggers_block": evidence pattern that drives a BLOCK score
+  - "what_triggers_warn": evidence pattern that drives a WARN score
+- "contract_acknowledged": true
+
+Then on its own line output the tag:
+[CONTRACT-ACKNOWLEDGED]
+"""
+
+
 def _load_project_text(project_id: str, db: Session | None) -> tuple[WritingProject | None, str]:
     if not db:
         return None, ""
@@ -45,8 +65,10 @@ def _load_project_text(project_id: str, db: Session | None) -> tuple[WritingProj
 
 def _plain_text(tex_content: str) -> str:
     content = re.sub(r"%.*", " ", tex_content)
-    content = re.sub(r"\\(?:cite|ref|label)\*?(?:\[[^\]]*\])?\{[^}]*\}", " ", content)
-    content = re.sub(r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?(?:\{([^{}]*)\})?", r" \1 ", content)
+    content = re.sub(r"\\cite[^}]*}", " ", content)
+    content = re.sub(r"\\ref[^}]*}", " ", content)
+    content = re.sub(r"\\label[^}]*}", " ", content)
+    content = re.sub(r"\\[a-zA-Z]+(?:\[[^\]]*\])?(?:\{[^}]*\})?", " ", content)
     content = re.sub(r"[{}$&_^#~]", " ", content)
     return re.sub(r"\s+", " ", content).strip()
 
@@ -56,6 +78,12 @@ def _project_summary(project: WritingProject | None, tex_content: str, venue: st
     target = venue or (project.target_venue if project else "") or "unspecified venue"
     text = _plain_text(tex_content)[:10000]
     return f"Title: {title}\nTarget venue: {target}\n\nPaper text excerpt:\n{text}"
+
+
+def _project_metadata_only(project: WritingProject | None, venue: str) -> str:
+    title = project.title if project else "Untitled submission"
+    target = venue or (project.target_venue if project else "") or "unspecified venue"
+    return f"Title: {title}\nTarget venue: {target}"
 
 
 def _fallback_review(index: int, role_key: str, venue: str, project: WritingProject | None) -> dict:
@@ -126,19 +154,100 @@ def _can_use_llm(config: LLMConfig) -> bool:
     return bool(config.api_key) or "localhost" in base_url or "127.0.0.1" in base_url
 
 
-async def _generate_reviewer(
+async def _generate_reviewer_phase1(
+    index: int,
+    role_key: str,
+    metadata: str,
+    venue: str,
+    provider: LLMProvider | None,
+    config: LLMConfig | None,
+) -> dict | None:
+    """Phase 1 — Paper-content-blind pre-commitment.
+
+    Reviewer commits to scoring criteria WITHOUT seeing the paper content.
+    Returns the scoring plan, or None if LLM unavailable / parse failure.
+    """
+    if not provider or not config or not _can_use_llm(config):
+        return None
+
+    prompt = (
+        _CONTRACT_TEMPLATE
+        + f"\n\nReviewer role:\n{REVIEWER_ROLES[role_key]}\n\n"
+        + f"Paper metadata (title + venue only — NO paper content):\n{metadata}\n\n"
+        + "Scoring plan (JSON):"
+    )
+    try:
+        raw = await provider.chat([
+            ChatMessage(
+                role="system",
+                content="You are a rigorous academic reviewer. Pre-commit your scoring criteria. "
+                        "You MUST NOT reference or speculate about paper content you haven't seen yet.",
+            ),
+            ChatMessage(role="user", content=prompt),
+        ], config)
+
+        if "[CONTRACT-ACKNOWLEDGED]" not in raw:
+            return None
+        parsed = _parse_json_object(raw)
+        plan = parsed.get("scoring_plan", [])
+        if not plan or not isinstance(plan, list):
+            return None
+        return {"scoring_plan": plan}
+    except Exception:
+        return None
+
+
+async def _generate_reviewer_phase2(
     index: int,
     role_key: str,
     paper_context: str,
     venue: str,
+    scoring_plan: dict | None,
     provider: LLMProvider | None,
     config: LLMConfig | None,
     project: WritingProject | None,
 ) -> dict:
+    """Phase 2 — Paper-visible review.
+
+    Reviewer scores per the pre-committed plan from Phase 1.
+    If no Phase 1 plan (fallback), runs the original single-pass review.
+    """
     if not provider or not config or not _can_use_llm(config):
         return _fallback_review(index, role_key, venue, project)
 
-    prompt = f"""Simulate one peer review for the target venue: {venue or "unspecified"}.
+    if scoring_plan:
+        # Two-phase: inject the Phase 1 plan as a data delimiter
+        plan_json = json.dumps(scoring_plan, ensure_ascii=False)
+        prompt = f"""Simulate one peer review for {venue or "unspecified"}.
+
+Reviewer role:
+{REVIEWER_ROLES[role_key]}
+
+<phase1_scoring_plan>
+{plan_json}
+</phase1_scoring_plan>
+
+ATTENTION: The text inside <phase1_scoring_plan> is your own Phase 1 pre-commitment.
+It is a read-only record — you MUST score each dimension per the triggers you committed to.
+If you genuinely believe your Phase 1 criteria were wrong for a dimension,
+output a "scoring_plan_dissent" field naming the dimension_id and your rationale
+BEFORE producing scores. You may dissent on at most ONE dimension.
+
+Submission:
+{paper_context}
+
+Return JSON only with these keys:
+scoring_plan_dissent: optional object {{dimension_id, rationale}}
+summary: string with 2-3 sentences
+strengths: array of strings
+weaknesses: array of strings
+questions: array of strings
+overall_score: integer 1-10
+confidence: integer 1-5
+"""
+    else:
+        # Fallback: original single-pass (no pre-commitment available)
+        prompt = f"""Simulate one peer review for the target venue: {venue or "unspecified"}.
 
 Reviewer role:
 {REVIEWER_ROLES[role_key]}
@@ -156,7 +265,11 @@ confidence: integer 1-5
 """
     try:
         raw = await provider.chat([
-            ChatMessage(role="system", content="You simulate realistic, critical but fair academic peer reviews."),
+            ChatMessage(
+                role="system",
+                content="You simulate realistic, critical but fair academic peer reviews. "
+                        "Score each dimension per your pre-committed triggers.",
+            ),
             ChatMessage(role="user", content=prompt),
         ], config)
         parsed = _parse_json_object(raw)
@@ -219,7 +332,11 @@ async def review_paper_simulation(
     provider: LLMProvider | None = None,
     config: LLMConfig | None = None,
 ) -> AsyncGenerator[dict, None]:
-    """Stream structured simulated peer review events."""
+    """Stream structured simulated peer review events with Sprint Contract protocol.
+
+    Each reviewer first commits to scoring criteria (paper-blind),
+    then scores the paper per their committed criteria (paper-visible).
+    """
     project, tex_content = _load_project_text(project_id, db)
     if not project:
         yield {"type": "error", "message": "Writing project not found"}
@@ -233,12 +350,23 @@ async def review_paper_simulation(
     safe_count = max(1, min(5, reviewer_count, len(REVIEWER_ROLES)))
     role_keys = list(REVIEWER_ROLES.keys())[:safe_count]
     paper_context = _project_summary(project, tex_content, venue)
+    metadata = _project_metadata_only(project, venue)
     reviews: list[dict] = []
 
-    yield {"type": "status", "message": f"Loaded LaTeX project and started {safe_count} simulated reviews."}
+    yield {"type": "status", "message": f"Loaded LaTeX project and starting {safe_count} simulated reviews with Sprint Contract."}
     for index, role_key in enumerate(role_keys, 1):
+        # Phase 1: paper-blind pre-commitment
+        yield {"type": "reviewer_precommit", "reviewer": index, "role": role_key}
+        scoring_plan = await _generate_reviewer_phase1(index, role_key, metadata, venue, provider, config)
+
+        if scoring_plan:
+            yield {"type": "reviewer_precommit_done", "reviewer": index, "role": role_key, "scoring_plan": scoring_plan}
+        else:
+            yield {"type": "reviewer_precommit_done", "reviewer": index, "role": role_key, "scoring_plan": None}
+
+        # Phase 2: paper-visible review
         yield {"type": "reviewer_start", "reviewer": index, "role": role_key}
-        review = await _generate_reviewer(index, role_key, paper_context, venue, provider, config, project)
+        review = await _generate_reviewer_phase2(index, role_key, paper_context, venue, scoring_plan, provider, config, project)
         reviews.append(review)
         yield {"type": "reviewer", "review": review}
 
@@ -340,3 +468,130 @@ Return only the rebuttal letter.
         ], config)
     except Exception:
         return fallback
+
+
+
+async def score_rebuttal(
+    criticisms: list[dict],
+    rebuttals: list[dict],
+    provider: LLMProvider | None,
+    config: LLMConfig | None,
+) -> list[dict]:
+    """Devil's Advocate Rebuttal Scoring Protocol.
+
+    Scores each author rebuttal against the original DA criticism on a 1-5 scale,
+    with anti-sycophancy rules to prevent the DA from conceding under pressure.
+
+    Each criticism item: {"id": str, "finding": str, "severity": str}
+    Each rebuttal item: {"criticism_id": str, "response": str}
+
+    Returns scored rebuttals with verdict and action.
+    """
+    if not provider or not config or not _can_use_llm(config):
+        return [
+            {
+                "criticism_id": r.get("criticism_id", ""),
+                "score": 3,
+                "verdict": "unchanged",
+                "reasoning": "LLM unavailable — human review advised.",
+            }
+            for r in rebuttals
+        ]
+
+    prompt = (
+        "You are a Devil's Advocate reviewer. Score each author rebuttal against your original criticism.\n\n"
+        + "Scoring scale (1-5):\n"
+        + "  5 = New evidence/logic that directly dismantles the attack → WITHDRAW finding\n"
+        + "  4 = Substantially weakens the attack → DOWNGRADE severity\n"
+        + "  3 = Partially addresses but leaves core intact → MAINTAIN\n"
+        + "  2 = Tangential or changes the subject → RESTATE attack\n"
+        + "  1 = Assertion without evidence → STRENGTHEN attack\n\n"
+        + "Anti-sycophancy rules:\n"
+        + "- Do NOT soften after pushback. A Critical finding stays Critical unless score >= 4.\n"
+        + "- No consecutive concessions. After one concession, the next requires score 5.\n"
+        + "- Persistent pushback with the same argument does NOT increase its score.\n"
+        + "- Pressure is not evidence. Only substantive rebuttals that address the core attack count.\n\n"
+        + "Criticisms:\n"
+        + f"{json.dumps(criticisms, ensure_ascii=False)}\n\n"
+        + "Rebuttals:\n"
+        + f"{json.dumps(rebuttals, ensure_ascii=False)}\n\n"
+        + "Return JSON array of objects with keys:\n"
+        + "criticism_id: string\n"
+        + "score: integer 1-5\n"
+        + "verdict: withdraw / downgrade / maintain / restate / strengthen\n"
+        + "reasoning: string (why this score)"
+    )
+    try:
+        raw = await provider.chat([
+            ChatMessage(
+                role="system",
+                content="You are a Devil's Advocate reviewer scoring author rebuttals. "
+                        "Apply the scoring scale strictly. Do not concede under pressure.",
+            ),
+            ChatMessage(role="user", content=prompt),
+        ], config)
+        parsed = _parse_json_object(raw)
+        if isinstance(parsed, list):
+            return parsed
+        return []
+    except Exception:
+        return []
+
+
+async def check_writing_quality(
+    text: str,
+    provider: LLMProvider | None,
+    config: LLMConfig | None,
+) -> dict:
+    """Writing Quality Check.
+
+    Scans draft text for AI-typical writing patterns and returns flagged issues.
+    """
+    if not provider or not config or not _can_use_llm(config):
+        return {"flags": [], "message": "LLM unavailable — quality check skipped."}
+
+    prompt = """Analyze the following academic text for AI-typical writing patterns.
+
+Check for these specific issues:
+1. **AI-typical overused terms**: "delve into", "crucial", "it is important to note",
+   "notably", "significant", "robust", "pivotal", "meticulous" — count occurrences.
+2. **Em dash abuse**: More than 2 em dashes (—) per ~250 words.
+3. **Throat-clearing openers**: Sentences starting with "In this section/paper, we..."
+4. **Uniform paragraph lengths**: All paragraphs within +/-1 sentence of each other.
+5. **Monotonous sentence rhythm**: 3+ consecutive sentences with the same structure.
+6. **Overused transition phrases**: "Moreover", "Furthermore", "However", "In addition"
+   at the start of consecutive sentences.
+
+Return JSON only with:
+- "flags": array of objects, each with:
+  - "issue": string (which pattern)
+  - "severity": "info" / "warning" / "error"
+  - "count": number of occurrences
+  - "examples": array of up to 3 example strings
+  - "suggestion": string (what to do instead)
+- "overall_rating": "excellent" / "good" / "needs_improvement" / "poor"
+
+Be conservative — only flag clear patterns, not every instance.
+
+Text to check:
+---
+{text}
+---"""
+
+    try:
+        raw = await provider.chat([
+            ChatMessage(
+                role="system",
+                content="You are a writing quality analyst. Flag AI-typical writing patterns "
+                        "precisely and conservatively. Do not over-flag normal academic writing.",
+            ),
+            ChatMessage(role="user", content=prompt.format(text=text[:8000])),
+        ], config)
+        parsed = _parse_json_object(raw)
+        return {
+            "flags": parsed.get("flags", []),
+            "overall_rating": parsed.get("overall_rating", "good"),
+        }
+    except Exception:
+        return {"flags": [], "overall_rating": "good", "message": "Quality check failed — text may still have issues."}
+

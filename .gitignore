@@ -45,6 +45,7 @@ Thumbs.db
 
 #
 docs/
+research/
 *.txt
 
 # 忽略所有 .md 文件

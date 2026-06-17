@@ -254,6 +254,54 @@ class RebuttalRequest(BaseModel):
     response_style: str = "detailed"  # detailed / concise
 
 
+# ── Writing Quality Check ─────────────────────────
+class WritingQualityCheckRequest(BaseModel):
+    writing_project_id: str
+    text: str = ""
+
+
+class WritingFlag(BaseModel):
+    issue: str
+    severity: str  # info / warning / error
+    count: int = 0
+    examples: list[str] = []
+    suggestion: str = ""
+
+
+class WritingQualityCheckResult(BaseModel):
+    flags: list[WritingFlag]
+    overall_rating: str = "good"
+    message: str = ""
+
+
+# ── Rebuttal Scoring ─────────────────────────────
+class CriticismItem(BaseModel):
+    id: str
+    finding: str
+    severity: str = "major"
+
+
+class RebuttalItem(BaseModel):
+    criticism_id: str
+    response: str
+
+
+class RebuttalScoreRequest(BaseModel):
+    criticisms: list[CriticismItem]
+    rebuttals: list[RebuttalItem]
+
+
+class ScoredRebuttal(BaseModel):
+    criticism_id: str
+    score: int
+    verdict: str
+    reasoning: str
+
+
+class RebuttalScoreResponse(BaseModel):
+    scored: list[ScoredRebuttal]
+
+
 # ── LLM Provider ─────────────────────────────────
 class ProviderCreate(BaseModel):
     name: str

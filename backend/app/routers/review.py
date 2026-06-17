@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
-from app.agents.review_agent import generate_cover_letter, generate_rebuttal, review_paper_simulation
+from app.agents.review_agent import check_writing_quality, generate_cover_letter, generate_rebuttal, review_paper_simulation, score_rebuttal
 from app.database import get_db
 from app.database.sqlite import WritingProject
 from app.llm.router import get_active_provider
@@ -16,9 +16,13 @@ from app.models import (
     FormatCheckRequest,
     FormatCheckResult,
     RebuttalRequest,
+    RebuttalScoreRequest,
+    RebuttalScoreResponse,
     ReviewSimulateRequest,
     VenueRecommendRequest,
     VenueRecommendResponse,
+    WritingQualityCheckRequest,
+    WritingQualityCheckResult,
 )
 from app.services.format_service import check_format
 from app.services.venue_service import recommend_venues
@@ -108,3 +112,38 @@ async def generate_rebuttal_endpoint(req: RebuttalRequest, db: Session = Depends
         config=config,
     )
     return {"content": content}
+
+
+@router.post("/review/check-writing-quality", response_model=WritingQualityCheckResult)
+async def check_writing_quality_endpoint(req: WritingQualityCheckRequest, db: Session = Depends(get_db)):
+    """Check a writing project's text for AI-typical writing patterns."""
+    from pathlib import Path
+    provider, config = get_active_provider(db)
+
+    if req.text.strip():
+        text = req.text
+    else:
+        project = db.query(WritingProject).filter(WritingProject.id == req.writing_project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Writing project not found")
+        if not project.latex_project_path:
+            return WritingQualityCheckResult(flags=[], overall_rating="good", message="No LaTeX project path.")
+        main_tex = Path(project.latex_project_path) / "main.tex"
+        if not main_tex.exists():
+            return WritingQualityCheckResult(flags=[], overall_rating="good", message="main.tex not found.")
+        text = main_tex.read_text(encoding="utf-8", errors="ignore")
+
+    result = await check_writing_quality(text, provider, config)
+    return WritingQualityCheckResult(**result)
+
+
+@router.post("/review/score-rebuttal", response_model=RebuttalScoreResponse)
+async def score_rebuttal_endpoint(req: RebuttalScoreRequest, db: Session = Depends(get_db)):
+    """Score author rebuttals against DA criticisms using the 1-5 scoring protocol."""
+    provider, config = get_active_provider(db)
+
+    criticisms = [{"id": c.id, "finding": c.finding, "severity": c.severity} for c in req.criticisms]
+    rebuttals = [{"criticism_id": r.criticism_id, "response": r.response} for r in req.rebuttals]
+
+    scored = await score_rebuttal(criticisms, rebuttals, provider, config)
+    return RebuttalScoreResponse(scored=scored)
