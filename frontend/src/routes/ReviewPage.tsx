@@ -74,6 +74,21 @@ type MetaReview = {
   action_items: string[];
 };
 
+type Persona = {
+  role_desc: string;
+  focus_areas: string[];
+  known_for: string;
+};
+
+type ScoringPlan = {
+  scoring_plan: Array<{
+    dimension_id: string;
+    what_to_look_for: string;
+    what_triggers_block: string;
+    what_triggers_warn: string;
+  }>;
+};
+
 type FailureMode = {
   mode: number;
   name: string;
@@ -86,6 +101,13 @@ type FailureChecklistResult = {
   modes: FailureMode[];
   blocking: boolean;
   summary: string;
+};
+
+type RebuttalScore = {
+  criticism_id: string;
+  score: number;
+  verdict: string;
+  reasoning: string;
 };
 
 type TabKey = "venue" | "format" | "simulate" | "letters" | "checklist";
@@ -129,12 +151,18 @@ export default function ReviewPage() {
   const [metaReview, setMetaReview] = useState<MetaReview | null>(null);
   const [reviewLog, setReviewLog] = useState("");
   const [simulating, setSimulating] = useState(false);
+  const [personas, setPersonas] = useState<Record<string, Persona> | null>(null);
+  const [scoringPlans, setScoringPlans] = useState<Record<number, ScoringPlan | null>>({});
 
   const [coverNotes, setCoverNotes] = useState("");
   const [coverLetter, setCoverLetter] = useState("");
   const [reviewText, setReviewText] = useState("");
   const [rebuttal, setRebuttal] = useState("");
   const [letterBusy, setLetterBusy] = useState<"cover" | "rebuttal" | null>(null);
+  const [criticismText, setCriticismText] = useState("");
+  const [rebuttalScoreText, setRebuttalScoreText] = useState("");
+  const [rebuttalScores, setRebuttalScores] = useState<RebuttalScore[]>([]);
+  const [scoringRebuttal, setScoringRebuttal] = useState(false);
   const [checklistText, setChecklistText] = useState("");
   const [checklistResult, setChecklistResult] = useState<FailureChecklistResult | null>(null);
   const [checklistBusy, setChecklistBusy] = useState(false);
@@ -214,6 +242,8 @@ export default function ReviewPage() {
     setReviewers([]);
     setMetaReview(null);
     setReviewLog("");
+    setPersonas(null);
+    setScoringPlans({});
     try {
       const response = await fetch("/api/v1/review/simulate", {
         method: "POST",
@@ -227,6 +257,26 @@ export default function ReviewPage() {
       await readSse(response, (data) => {
         if (data.type === "status") {
           setReviewLog(String(data.message || ""));
+        }
+        if (data.type === "personas" && data.personas) {
+          setPersonas(data.personas as Record<string, Persona>);
+        }
+        if (data.type === "reviewer_precommit") {
+          setReviewLog(`Reviewer ${String(data.reviewer || "")} (${String(data.role || "")}) is committing to scoring criteria...`);
+        }
+        if (data.type === "reviewer_precommit_done") {
+          const reviewer = Number(data.reviewer || 0);
+          if (reviewer) {
+            setScoringPlans((prev) => ({
+              ...prev,
+              [reviewer]: (data.scoring_plan as ScoringPlan | null) || null,
+            }));
+          }
+          if (data.scoring_plan) {
+            setReviewLog(`Reviewer ${String(data.reviewer || "")} (${String(data.role || "")}) committed (Sprint Contract active).`);
+          } else {
+            setReviewLog(`Reviewer ${String(data.reviewer || "")} (${String(data.role || "")}) — Sprint Contract unavailable, using direct review.`);
+          }
         }
         if (data.type === "reviewer_start") {
           setReviewLog(`Reviewer ${String(data.reviewer || "")} (${String(data.role || "")}) is reading the manuscript...`);
@@ -300,6 +350,24 @@ export default function ReviewPage() {
       setChecklistResult(resp);
     } finally {
       setChecklistBusy(false);
+    }
+  };
+
+  const scoreRebuttal = async () => {
+    const criticisms = parseCriticisms(criticismText);
+    const rebuttals = parseRebuttals(rebuttalScoreText || rebuttal);
+    if (criticisms.length === 0 || rebuttals.length === 0) return;
+
+    setScoringRebuttal(true);
+    try {
+      const resp = await api
+        .post("review/score-rebuttal", {
+          json: { criticisms, rebuttals },
+        })
+        .json<{ scored: RebuttalScore[] }>();
+      setRebuttalScores(resp.scored || []);
+    } finally {
+      setScoringRebuttal(false);
     }
   };
 
@@ -506,7 +574,12 @@ export default function ReviewPage() {
                 ) : (
                   <div className="grid gap-4">
                     {reviewers.map((review) => (
-                      <ReviewCardView key={`${review.reviewer}-${review.role}`} review={review} />
+                      <ReviewCardView
+                        key={`${review.reviewer}-${review.role}`}
+                        review={review}
+                        persona={findPersona(personas, review.role)}
+                        scoringPlan={scoringPlans[review.reviewer] || null}
+                      />
                     ))}
                   </div>
                 )}
@@ -539,61 +612,98 @@ export default function ReviewPage() {
         )}
 
         {activeTab === "letters" && (
-          <div className="grid h-full min-h-0 gap-5 xl:grid-cols-2">
-            <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
-              <div className="flex items-center justify-between border-b border-border p-4">
-                <SectionTitle icon={Mail} title="Cover Letter" />
-                <button
-                  onClick={generateCoverLetter}
-                  disabled={letterBusy === "cover" || !selectedProject}
-                  className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50"
-                >
-                  {letterBusy === "cover" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                  生成
-                </button>
-              </div>
-              <div className="grid min-h-0 flex-1 grid-rows-[120px_minmax(0,1fr)]">
-                <textarea
-                  value={coverNotes}
-                  onChange={(event) => setCoverNotes(event.target.value)}
-                  placeholder="补充给编辑的说明"
-                  className="resize-none border-b border-border bg-background p-3 text-sm leading-6 outline-none"
-                />
-                <textarea
-                  value={coverLetter}
-                  onChange={(event) => setCoverLetter(event.target.value)}
-                  placeholder="Cover Letter 生成结果"
-                  className="min-h-0 resize-none bg-background p-4 text-sm leading-6 outline-none"
-                />
-              </div>
-            </section>
+          <div className="flex h-full min-h-0 flex-col gap-5 overflow-hidden">
+            <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-2">
+              <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
+                <div className="flex items-center justify-between border-b border-border p-4">
+                  <SectionTitle icon={Mail} title="Cover Letter" />
+                  <button
+                    onClick={generateCoverLetter}
+                    disabled={letterBusy === "cover" || !selectedProject}
+                    className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50"
+                  >
+                    {letterBusy === "cover" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                    生成
+                  </button>
+                </div>
+                <div className="grid min-h-0 flex-1 grid-rows-[120px_minmax(0,1fr)]">
+                  <textarea
+                    value={coverNotes}
+                    onChange={(event) => setCoverNotes(event.target.value)}
+                    placeholder="补充给编辑的说明"
+                    className="resize-none border-b border-border bg-background p-3 text-sm leading-6 outline-none"
+                  />
+                  <textarea
+                    value={coverLetter}
+                    onChange={(event) => setCoverLetter(event.target.value)}
+                    placeholder="Cover Letter 生成结果"
+                    className="min-h-0 resize-none bg-background p-4 text-sm leading-6 outline-none"
+                  />
+                </div>
+              </section>
 
-            <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
-              <div className="flex items-center justify-between border-b border-border p-4">
-                <SectionTitle icon={MessageSquareReply} title="Rebuttal" />
+              <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
+                <div className="flex items-center justify-between border-b border-border p-4">
+                  <SectionTitle icon={MessageSquareReply} title="Rebuttal" />
+                  <button
+                    onClick={generateRebuttal}
+                    disabled={letterBusy === "rebuttal" || !selectedProject || !reviewText.trim()}
+                    className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50"
+                  >
+                    {letterBusy === "rebuttal" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                    生成
+                  </button>
+                </div>
+                <div className="grid min-h-0 flex-1 grid-rows-[180px_minmax(0,1fr)]">
+                  <textarea
+                    value={reviewText}
+                    onChange={(event) => setReviewText(event.target.value)}
+                    placeholder="粘贴审稿意见"
+                    className="resize-none border-b border-border bg-background p-3 text-sm leading-6 outline-none"
+                  />
+                  <textarea
+                    value={rebuttal}
+                    onChange={(event) => setRebuttal(event.target.value)}
+                    placeholder="Rebuttal 生成结果"
+                    className="min-h-0 resize-none bg-background p-4 text-sm leading-6 outline-none"
+                  />
+                </div>
+              </section>
+            </div>
+
+            <section className="max-h-[42%] overflow-auto rounded-lg border border-border bg-card p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <SectionTitle icon={ClipboardCheck} title="Rebuttal 评分" />
                 <button
-                  onClick={generateRebuttal}
-                  disabled={letterBusy === "rebuttal" || !selectedProject || !reviewText.trim()}
+                  onClick={scoreRebuttal}
+                  disabled={scoringRebuttal || !criticismText.trim() || !(rebuttalScoreText.trim() || rebuttal.trim())}
                   className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50"
                 >
-                  {letterBusy === "rebuttal" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                  生成
+                  {scoringRebuttal ? <Loader2 size={15} className="animate-spin" /> : <ClipboardCheck size={15} />}
+                  评分
                 </button>
               </div>
-              <div className="grid min-h-0 flex-1 grid-rows-[180px_minmax(0,1fr)]">
+              <div className="grid gap-3 xl:grid-cols-2">
                 <textarea
-                  value={reviewText}
-                  onChange={(event) => setReviewText(event.target.value)}
-                  placeholder="粘贴审稿意见"
-                  className="resize-none border-b border-border bg-background p-3 text-sm leading-6 outline-none"
+                  value={criticismText}
+                  onChange={(event) => setCriticismText(event.target.value)}
+                  placeholder="每行一条审稿意见，例如：C1: 核心假设未验证"
+                  className="h-28 resize-none rounded-md border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"
                 />
                 <textarea
-                  value={rebuttal}
-                  onChange={(event) => setRebuttal(event.target.value)}
-                  placeholder="Rebuttal 生成结果"
-                  className="min-h-0 resize-none bg-background p-4 text-sm leading-6 outline-none"
+                  value={rebuttalScoreText}
+                  onChange={(event) => setRebuttalScoreText(event.target.value)}
+                  placeholder="每行一条回复，例如：R1: 我们在第4节补充了3个数据集验证"
+                  className="h-28 resize-none rounded-md border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
+              {rebuttalScores.length > 0 && (
+                <div className="mt-3 grid gap-2">
+                  {rebuttalScores.map((item) => (
+                    <RebuttalScoreRow key={item.criticism_id} item={item} />
+                  ))}
+                </div>
+              )}
             </section>
           </div>
         )}
@@ -657,6 +767,44 @@ async function readSse(response: Response, onData: (data: Record<string, unknown
       }
     }
   }
+}
+
+function findPersona(personas: Record<string, Persona> | null, role: string): Persona | undefined {
+  if (!personas) return undefined;
+  if (personas[role]) return personas[role];
+  const normalizedRole = role.toLowerCase();
+  return Object.entries(personas).find(([key]) => normalizedRole.includes(key.toLowerCase()))?.[1];
+}
+
+function parseCriticisms(text: string) {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const match = line.match(/^C?(\d+)[:：]\s*(.+)$/i);
+      const id = match ? `c${match[1]}` : `c${index + 1}`;
+      const finding = match ? match[2].trim() : line;
+      const severity = /critical|严重|核心|fatal/i.test(finding)
+        ? "critical"
+        : /major|主要|不完整|不足/i.test(finding)
+          ? "major"
+          : "minor";
+      return { id, finding, severity };
+    });
+}
+
+function parseRebuttals(text: string) {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const match = line.match(/^R?(\d+)[:：]\s*(.+)$/i);
+      const criticismId = match ? `c${match[1]}` : `c${index + 1}`;
+      const response = match ? match[2].trim() : line;
+      return { criticism_id: criticismId, response };
+    });
 }
 
 function SectionTitle({ icon: Icon, title }: { icon: LucideIcon; title: string }) {
@@ -751,9 +899,59 @@ function FormatIssueRow({ issue }: { issue: FormatIssue }) {
   );
 }
 
-function ReviewCardView({ review }: { review: ReviewCard }) {
+function RebuttalScoreRow({ item }: { item: RebuttalScore }) {
+  const scoreTone =
+    item.score >= 5
+      ? "bg-emerald-400/15 text-emerald-600 dark:text-emerald-300"
+      : item.score === 4
+        ? "bg-cyan-400/15 text-cyan-600 dark:text-cyan-300"
+        : item.score === 3
+          ? "bg-amber-400/15 text-amber-600 dark:text-amber-300"
+          : "bg-destructive/15 text-destructive";
+  return (
+    <div className="rounded-md border border-border bg-background p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{item.criticism_id}</span>
+        <span className={clsx("rounded px-2 py-0.5 text-xs", scoreTone)}>
+          {item.score}/5
+        </span>
+        <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+          {item.verdict}
+        </span>
+      </div>
+      <div className="mt-2 text-xs leading-5 text-muted-foreground">{item.reasoning}</div>
+    </div>
+  );
+}
+
+function ReviewCardView({
+  review,
+  persona,
+  scoringPlan,
+}: {
+  review: ReviewCard;
+  persona?: Persona;
+  scoringPlan?: ScoringPlan | null;
+}) {
   return (
     <article className="rounded-lg border border-border bg-background p-4">
+      {persona && (
+        <div className="mb-3 rounded-md bg-muted/30 p-3 text-xs leading-5">
+          <div className="mb-1 font-semibold text-amber-600 dark:text-amber-400">
+            {persona.role_desc}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {(persona.focus_areas || []).map((area) => (
+              <span key={area} className="rounded-md bg-muted px-2 py-0.5 text-[11px]">
+                {area}
+              </span>
+            ))}
+          </div>
+          {persona.known_for && (
+            <div className="mt-2 text-muted-foreground">Known for: {persona.known_for}</div>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Reviewer {review.reviewer}</div>
@@ -770,6 +968,29 @@ function ReviewCardView({ review }: { review: ReviewCard }) {
         <ReviewList title="Weaknesses" items={review.weaknesses} tone="amber" />
         <ReviewList title="Questions" items={review.questions} tone="cyan" />
       </div>
+      {scoringPlan && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs text-muted-foreground">
+            Sprint Contract — 预承诺标准
+          </summary>
+          <div className="mt-2 grid gap-2">
+            {(scoringPlan.scoring_plan || []).map((dim) => (
+              <div key={dim.dimension_id} className="rounded-md border border-border p-2 text-xs">
+                <div className="font-medium">{dim.dimension_id}</div>
+                <div className="mt-1 text-muted-foreground">{dim.what_to_look_for}</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-destructive">
+                    BLOCK: {dim.what_triggers_block}
+                  </span>
+                  <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-amber-600 dark:text-amber-300">
+                    WARN: {dim.what_triggers_warn}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </article>
   );
 }

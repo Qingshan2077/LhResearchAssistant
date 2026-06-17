@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   BookOpen,
   Check,
   ClipboardCheck,
@@ -11,6 +12,7 @@ import {
   Loader2,
   Plus,
   Save,
+  ShieldCheck,
   Sparkles,
   Wand2,
 } from "lucide-react";
@@ -48,6 +50,19 @@ type VerifyResult = {
   valid: boolean;
   status: string;
   message: string;
+};
+
+type WritingQualityFlag = {
+  issue: string;
+  severity: "info" | "warning" | "error";
+  count: number;
+  examples: string[];
+  suggestion: string;
+};
+
+type WritingQualityResult = {
+  flags: WritingQualityFlag[];
+  overall_rating: string;
 };
 
 const DEFAULT_OUTLINE = [
@@ -89,6 +104,8 @@ export default function WritePage() {
   const [verifyResults, setVerifyResults] = useState<VerifyResult[]>([]);
   const [polishResult, setPolishResult] = useState<PolishResult | null>(null);
   const [polishStyle, setPolishStyle] = useState("academic");
+  const [qualityChecking, setQualityChecking] = useState(false);
+  const [qualityResult, setQualityResult] = useState<WritingQualityResult | null>(null);
 
   useEffect(() => {
     api
@@ -306,6 +323,24 @@ export default function WritePage() {
     window.alert(`${resp.message}\n\n${resp.editor} ${resp.args.join(" ")}`);
   };
 
+  const checkWritingQuality = async () => {
+    if (!selectedProject) return;
+    setQualityChecking(true);
+    try {
+      const resp = await api
+        .post("review/check-writing-quality", {
+          json: {
+            writing_project_id: selectedProject.id,
+            text: activeSection ? sectionContent[activeSection] || "" : "",
+          },
+        })
+        .json<WritingQualityResult>();
+      setQualityResult(resp);
+    } finally {
+      setQualityChecking(false);
+    }
+  };
+
   const togglePaper = (paperId: string) => {
     setSelectedPaperIds((prev) => {
       const next = new Set(prev);
@@ -416,13 +451,23 @@ export default function WritePage() {
                     {selectedProject.latex_project_path}
                   </div>
                 </div>
-                <button
-                  onClick={openExternalEditor}
-                  className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
-                >
-                  <ExternalLink size={14} />
-                  外部编辑器
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={checkWritingQuality}
+                    disabled={qualityChecking}
+                    className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
+                  >
+                    {qualityChecking ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                    写作质量检查
+                  </button>
+                  <button
+                    onClick={openExternalEditor}
+                    className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
+                  >
+                    <ExternalLink size={14} />
+                    外部编辑器
+                  </button>
+                </div>
               </div>
 
               <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -635,9 +680,61 @@ export default function WritePage() {
                 </div>
               </div>
             )}
+
+            {qualityResult && (
+              <div className="mt-4 border-t border-border pt-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-sm font-medium">写作质量检查</div>
+                  <span className="rounded bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                    {qualityResult.overall_rating}
+                  </span>
+                </div>
+                <div className="grid gap-2">
+                  {qualityResult.flags.length === 0 ? (
+                    <div className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+                      未发现明显写作质量问题。
+                    </div>
+                  ) : (
+                    qualityResult.flags.map((flag) => (
+                      <QualityFlagRow key={flag.issue} flag={flag} />
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </section>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function QualityFlagRow({ flag }: { flag: WritingQualityFlag }) {
+  const tone =
+    flag.severity === "error"
+      ? "border-destructive/40 bg-destructive/10 text-destructive"
+      : flag.severity === "warning"
+        ? "border-amber-400/40 bg-amber-400/10 text-amber-600 dark:text-amber-300"
+        : "border-border bg-muted/40 text-muted-foreground";
+  return (
+    <div className={`rounded-md border p-2 text-xs ${tone}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 font-medium">
+          <AlertTriangle size={13} />
+          {flag.issue}
+        </div>
+        <span>{flag.count}</span>
+      </div>
+      {flag.examples.length > 0 && (
+        <div className="mt-2 grid gap-1">
+          {flag.examples.slice(0, 3).map((example) => (
+            <div key={example} className="rounded bg-background/60 px-2 py-1">
+              {example}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 text-muted-foreground">{flag.suggestion}</div>
     </div>
   );
 }

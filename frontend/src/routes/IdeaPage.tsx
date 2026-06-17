@@ -16,14 +16,16 @@ import clsx from "clsx";
 import { api, type Paper } from "../lib/api";
 
 type IdeaMode = "gap_analysis" | "cross_domain" | "trend_based";
+type GenerationPhase = "generating" | "evaluating" | "done";
 
 type Evaluation = {
-  idea: string;
+  idea_title: string;
   novelty: number;
   feasibility: number;
   cost: number;
-  risk: string;
-  report: string;
+  reasoning: string;
+  risk?: string;
+  report?: string;
 };
 
 const MODES: Array<{ id: IdeaMode; label: string; icon: LucideIcon }> = [
@@ -42,9 +44,10 @@ export default function IdeaPage() {
   const [customPrompt, setCustomPrompt] = useState("");
   const [search, setSearch] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [phase, setPhase] = useState<GenerationPhase>("done");
+  const [streamStatus, setStreamStatus] = useState("");
   const [content, setContent] = useState("");
   const [evaluations, setEvaluations] = useState<Record<string, Evaluation>>({});
-  const [evaluating, setEvaluating] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -78,6 +81,8 @@ export default function IdeaPage() {
 
   const generateIdeas = async () => {
     setGenerating(true);
+    setPhase("generating");
+    setStreamStatus("");
     setContent("");
     setEvaluations({});
 
@@ -116,6 +121,18 @@ export default function IdeaPage() {
             const data = JSON.parse(line.slice(6));
             if (data.type === "chunk") {
               setContent((prev) => prev + data.content);
+            } else if (data.type === "status") {
+              setStreamStatus(String(data.message || ""));
+            } else if (data.type === "generation_done") {
+              setPhase("evaluating");
+            } else if (data.type === "evaluation" && data.evaluation) {
+              const evaluation = data.evaluation as Evaluation;
+              setEvaluations((prev) => ({
+                ...prev,
+                [evaluation.idea_title]: evaluation,
+              }));
+            } else if (data.type === "done") {
+              setPhase("done");
             } else if (data.type === "error") {
               setContent((prev) => prev + `\n\n> ${data.message}`);
             }
@@ -126,25 +143,9 @@ export default function IdeaPage() {
       }
     } catch (error) {
       setContent(`生成失败：${error}`);
+      setPhase("done");
     } finally {
       setGenerating(false);
-    }
-  };
-
-  const evaluateIdea = async (idea: string) => {
-    setEvaluating(idea);
-    try {
-      const resp = await api
-        .post("ideas/evaluate", {
-          json: {
-            idea,
-            context_paper_ids: Array.from(selectedIds),
-          },
-        })
-        .json<Evaluation>();
-      setEvaluations((prev) => ({ ...prev, [idea]: resp }));
-    } finally {
-      setEvaluating(null);
     }
   };
 
@@ -289,9 +290,16 @@ export default function IdeaPage() {
         <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="text-sm font-medium">生成结果</div>
-            <div className="text-xs text-muted-foreground">{ideaCards.length || 0} ideas</div>
+            <div className="text-xs text-muted-foreground">
+              {phase === "evaluating" ? "独立评估中" : `${ideaCards.length || 0} ideas`}
+            </div>
           </div>
           <div className="h-full overflow-auto p-4">
+            {streamStatus && (
+              <div className="mb-3 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+                {streamStatus}
+              </div>
+            )}
             {!content && !generating && (
               <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
                 选择论文和模式后生成研究 Idea。
@@ -301,36 +309,24 @@ export default function IdeaPage() {
             {ideaCards.length > 0 ? (
               <div className="grid gap-4">
                 {ideaCards.map((idea) => {
-                  const scores = extractIdeaScores(idea.body);
+                  const evaluation = findEvaluation(evaluations, idea.title);
                   return (
-                  <article key={idea.title} className="rounded-lg border border-border bg-background p-4">
-                    <h3 className="text-base font-semibold">{idea.title}</h3>
-                    <div className="mt-3 grid grid-cols-4 gap-2 text-xs">
-                      <Score label="Novelty" value={scores.novelty ?? "N/A"} />
-                      <Score label="Feasible" value={scores.feasibility ?? "N/A"} />
-                      <Score label="Cost" value={scores.cost ?? "N/A"} />
-                      <Score label="Risk" value={scores.risk ?? "N/A"} />
-                    </div>
-                    <div
-                      className="mt-3 text-sm leading-6 text-muted-foreground"
-                      dangerouslySetInnerHTML={{ __html: renderMarkdown(idea.body) }}
-                    />
-                    <button
-                      onClick={() => evaluateIdea(`${idea.title}\n${idea.body}`)}
-                      disabled={evaluating === `${idea.title}\n${idea.body}`}
-                      className="mt-4 inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
-                    >
-                      {evaluating === `${idea.title}\n${idea.body}` && (
-                        <Loader2 size={13} className="animate-spin" />
-                      )}
-                      评估
-                    </button>
-
-                    {evaluations[`${idea.title}\n${idea.body}`] && (
-                      <EvaluationView evaluation={evaluations[`${idea.title}\n${idea.body}`]} />
-                    )}
-                  </article>
-                );
+                    <article key={idea.title} className="rounded-lg border border-border bg-background p-4">
+                      <h3 className="text-base font-semibold">{idea.title}</h3>
+                      <div
+                        className="mt-3 text-sm leading-6 text-muted-foreground"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(idea.body) }}
+                      />
+                      {evaluation ? (
+                        <EvaluationView evaluation={evaluation} />
+                      ) : phase === "evaluating" ? (
+                        <div className="mt-4 inline-flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                          <Loader2 size={13} className="animate-spin" />
+                          等待独立评估
+                        </div>
+                      ) : null}
+                    </article>
+                  );
                 })}
               </div>
             ) : (
@@ -351,15 +347,14 @@ export default function IdeaPage() {
 function EvaluationView({ evaluation }: { evaluation: Evaluation }) {
   return (
     <div className="mt-4 rounded-md border border-border bg-muted/30 p-3 text-sm">
-      <div className="grid grid-cols-4 gap-2 text-xs">
+      <div className="grid grid-cols-3 gap-2 text-xs">
         <Score label="Novelty" value={evaluation.novelty} />
         <Score label="Feasible" value={evaluation.feasibility} />
         <Score label="Cost" value={evaluation.cost} />
-        <Score label="Risk" value={evaluation.risk} />
       </div>
       <div
         className="mt-3 text-xs leading-5 text-muted-foreground"
-        dangerouslySetInnerHTML={{ __html: renderMarkdown(evaluation.report) }}
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(evaluation.reasoning || evaluation.report || "") }}
       />
     </div>
   );
@@ -388,12 +383,17 @@ function parseIdeaCards(markdown: string) {
   });
 }
 
-function extractIdeaScores(body: string) {
-  const novelty = body.match(/novelty[^0-9]*(\d)/i)?.[1];
-  const feasibility = body.match(/feasibility[^0-9]*(\d)/i)?.[1];
-  const cost = body.match(/cost[^0-9]*(\d)/i)?.[1];
-  const risk = body.match(/risk[s]?[:\s-]+([^\n]+)/i)?.[1]?.trim();
-  return { novelty, feasibility, cost, risk };
+function findEvaluation(evaluations: Record<string, Evaluation>, title: string) {
+  if (evaluations[title]) return evaluations[title];
+  const normalizedTitle = normalizeTitle(title);
+  return Object.values(evaluations).find((item) => normalizeTitle(item.idea_title) === normalizedTitle);
+}
+
+function normalizeTitle(title: string) {
+  return title
+    .replace(/^idea\s*\d+\s*[:：-]\s*/i, "")
+    .trim()
+    .toLowerCase();
 }
 
 function renderMarkdown(text: string): string {
