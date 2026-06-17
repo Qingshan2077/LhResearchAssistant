@@ -407,7 +407,7 @@ const messages = {
     noWritingProjects: "还没有写作项目。",
     sectionContentPlaceholder: "点击生成，或手动撰写当前章节。",
     selectOrCreateProject: "创建或选择一个写作项目。",
-    polishResultHint: "在章节内容区点击"润色"后显示原文与润色稿。",
+    polishResultHint: '在章节内容区点击"润色"后显示原文与润色稿。',
     noQualityIssues: "未发现明显写作质量问题。",
     writingProject: "写作项目",
     generateOutline: "生成大纲",
