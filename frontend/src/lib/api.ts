@@ -1,6 +1,10 @@
 import ky from "ky";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "/api/v1";
+// Dev: Vite proxy handles /api → localhost:8787
+// Prod: direct HTTP to sidecar backend on localhost:8787
+const API_BASE =
+  import.meta.env.VITE_API_BASE ||
+  (import.meta.env.PROD ? "http://localhost:8787/api/v1" : "/api/v1");
 
 export const api = ky.create({
   prefixUrl: API_BASE,
