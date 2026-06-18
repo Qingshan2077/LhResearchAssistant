@@ -60,7 +60,7 @@ export default function KnowledgeBasePage() {
             "text-outline-color": nodeTextOutline,
             "text-outline-width": 1.2,
             "text-wrap": "wrap",
-            "text-max-width": 140,
+            "text-max-width": "140px",
           },
         },
         {

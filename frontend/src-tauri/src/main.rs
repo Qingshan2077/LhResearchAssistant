@@ -6,13 +6,31 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::Manager;
-use tauri_plugin_shell::ShellExt;
+use tauri::{Emitter, Manager};
+use tauri_plugin_shell::{process::CommandChild, ShellExt};
 
-struct PythonBackend(Mutex<Option<Child>>);
+enum BackendProcess {
+    Sidecar(CommandChild),
+    Uvicorn(Child),
+}
+
+impl BackendProcess {
+    fn kill(self) -> Result<(), String> {
+        match self {
+            Self::Sidecar(child) => child.kill().map_err(|e| e.to_string()),
+            Self::Uvicorn(mut child) => {
+                child.kill().map_err(|e| e.to_string())?;
+                child.wait().map_err(|e| e.to_string())?;
+                Ok(())
+            }
+        }
+    }
+}
+
+struct PythonBackend(Mutex<Option<BackendProcess>>);
 
 /// Try to launch the backend sidecar (production) or uvicorn (dev fallback).
-fn launch_backend(app: &tauri::AppHandle) -> Result<Child, String> {
+fn launch_backend(app: &tauri::AppHandle) -> Result<BackendProcess, String> {
     // ── Strategy 1: Sidecar (production build) ──
     // Tauri resolves externalBin internally via the shell plugin.
     // No manual path checking needed — if the binary isn't there,
@@ -25,7 +43,7 @@ fn launch_backend(app: &tauri::AppHandle) -> Result<Child, String> {
                 .spawn()
                 .map_err(|e| format!("sidecar spawn: {}", e))?;
             println!("[backend] Sidecar launched OK");
-            Ok(child)
+            Ok(BackendProcess::Sidecar(child))
         }
         Err(e) => {
             // ── Strategy 2: uvicorn (dev mode, needs Python installed) ──
@@ -36,6 +54,7 @@ fn launch_backend(app: &tauri::AppHandle) -> Result<Child, String> {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
+                .map(BackendProcess::Uvicorn)
                 .map_err(|e| format!("Failed to start uvicorn: {}", e))
         }
     }
@@ -74,12 +93,16 @@ fn wait_for_backend() -> bool {
 
 #[tauri::command]
 fn start_backend(app: tauri::AppHandle, state: tauri::State<PythonBackend>) -> Result<(), String> {
+    start_backend_inner(&app, state.inner())
+}
+
+fn start_backend_inner(app: &tauri::AppHandle, state: &PythonBackend) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
     if guard.is_some() {
         return Ok(()); // already running
     }
 
-    let child = launch_backend(&app)?;
+    let child = launch_backend(app)?;
 
     // Wait for backend to be ready
     if wait_for_backend() {
@@ -88,7 +111,7 @@ fn start_backend(app: tauri::AppHandle, state: tauri::State<PythonBackend>) -> R
         Ok(())
     } else {
         // Kill the child if health check failed
-        let _ = child.wait_with_output();
+        let _ = child.kill();
         Err("Backend health check timed out after 30s. Check that port 8787 is free.".to_string())
     }
 }
@@ -96,9 +119,10 @@ fn start_backend(app: tauri::AppHandle, state: tauri::State<PythonBackend>) -> R
 #[tauri::command]
 fn stop_backend(state: tauri::State<PythonBackend>) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-    if let Some(mut child) = guard.take() {
-        child.kill().map_err(|e| format!("Failed to stop backend: {}", e))?;
-        child.wait().ok();
+    if let Some(child) = guard.take() {
+        child
+            .kill()
+            .map_err(|e| format!("Failed to stop backend: {}", e))?;
         println!("[backend] Stopped");
     }
     Ok(())
@@ -117,7 +141,7 @@ fn main() {
                 std::thread::sleep(Duration::from_secs(2));
 
                 let state = handle.state::<PythonBackend>();
-                if let Err(e) = start_backend(handle.clone(), state.into_inner()) {
+                if let Err(e) = start_backend_inner(&handle, state.inner()) {
                     eprintln!("[backend] Launch failed: {}", e);
                     let _ = handle.emit("backend-error", e);
                 } else {
@@ -127,19 +151,18 @@ fn main() {
 
             Ok(())
         })
-        .on_event(|app, event| {
+        .invoke_handler(tauri::generate_handler![start_backend, stop_backend])
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 let state = app.state::<PythonBackend>();
                 if let Ok(mut guard) = state.0.lock() {
-                    if let Some(mut child) = guard.take() {
+                    if let Some(child) = guard.take() {
                         child.kill().ok();
-                        child.wait().ok();
                         println!("[backend] Cleaned up on exit");
                     }
-                }
+                };
             }
-        })
-        .invoke_handler(tauri::generate_handler![start_backend, stop_backend])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        });
 }

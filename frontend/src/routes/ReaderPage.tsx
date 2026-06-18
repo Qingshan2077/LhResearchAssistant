@@ -29,7 +29,7 @@ import ReactFlow, {
   useNodesState,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { t } from "../i18n";
+import { t, type Language } from "../i18n";
 import { useSettingsStore } from "../stores/settingsStore";
 import { ChatPanel } from "../components/ChatPanel";
 
@@ -451,6 +451,7 @@ export default function ReaderPage() {
                 progress={verificationProgress}
                 verifying={verifyingCitations}
                 onVerify={handleVerifyCitations}
+                language={language}
               />
             )}
 
@@ -667,11 +668,13 @@ function CitationVerificationPanel({
   progress,
   verifying,
   onVerify,
+  language,
 }: {
   status: CitationStatus | null;
   progress: string;
   verifying: boolean;
   onVerify: () => void;
+  language: Language;
 }) {
   const citations = status?.citations || [];
   return (
@@ -725,7 +728,7 @@ function CitationRow({ item }: { item: Record<string, unknown> }) {
         {status}
       </div>
       <div className="line-clamp-2">{String(item.citation || "")}</div>
-      {match?.title && (
+      {match !== null && Boolean(match.title) && (
         <div className="mt-1 line-clamp-2 text-muted-foreground">
           Match: {String(match.title)} {match.year ? `(${String(match.year)})` : ""}
         </div>
@@ -745,7 +748,7 @@ function Section({ title, content }: { title: string; content: string }) {
 
 type MindMapNode = {
   id: string;
-  paper_id?: string;
+  paper_id: string;
   label: string;
   node_type: string;
   content: string;

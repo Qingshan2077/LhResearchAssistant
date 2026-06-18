@@ -13,19 +13,19 @@ node_modules/
 frontend/dist/
 frontend/.vite/
 
-# ── Rust / Tauri ─────────────────────────────────
+# Rust / Tauri
 frontend/src-tauri/target/
 frontend/src-tauri/debug/
 frontend/src-tauri/binaries/   # Sidecar: PyInstaller 打包后的后端 exe
 
-# ── PyInstaller 构建产物 ──
+# PyInstaller 构建产物
 backend/dist/
 backend/build/
 backend/*.spec
-# 保留 .spec 文件本身（pack.spec 是配置而非产物）
+# 保留 .spec 文件本身
 !backend/pack.spec
 
-# ── TypeScript 编译缓存 ──────────────────────────
+# TypeScript 编译缓存
 *.tsbuildinfo
 
 # 运行时数据（本地缓存 + 数据库，不上传）
