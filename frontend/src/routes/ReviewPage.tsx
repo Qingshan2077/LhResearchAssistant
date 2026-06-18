@@ -18,7 +18,7 @@ import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
 import { t } from "../i18n";
 import { useSettingsStore } from "../stores/settingsStore";
-import { api } from "../lib/api";
+import { api, apiUrl } from "../lib/api";
 
 type WritingProject = {
   id: string;
@@ -248,7 +248,7 @@ export default function ReviewPage() {
     setPersonas(null);
     setScoringPlans({});
     try {
-      const response = await fetch("/api/v1/review/simulate", {
+      const response = await fetch(apiUrl("review/simulate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
-import { api, type Paper } from "../lib/api";
+import { api, apiUrl, type Paper } from "../lib/api";
 import { t } from "../i18n";
 import { useSettingsStore } from "../stores/settingsStore";
 
@@ -90,7 +90,7 @@ export default function IdeaPage() {
     setEvaluations({});
 
     try {
-      const response = await fetch("/api/v1/ideas/generate", {
+      const response = await fetch(apiUrl("ideas/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

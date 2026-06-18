@@ -583,7 +583,8 @@ async def get_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
     return FileResponse(
         pdf_path,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{pdf_path.name}"'},
+        filename=pdf_path.name,
+        content_disposition_type="inline",
     )
 
 

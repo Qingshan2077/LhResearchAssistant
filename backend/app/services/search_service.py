@@ -65,15 +65,20 @@ async def search_papers(
             return name, [], "Unknown source."
         try:
             instance = source_cls()
-            results = await instance.search(
-                query=query,
-                max_results=max_results_per_source,
-                year_from=year_from,
-                year_to=year_to,
+            results = await asyncio.wait_for(
+                instance.search(
+                    query=query,
+                    max_results=max_results_per_source,
+                    year_from=year_from,
+                    year_to=year_to,
+                ),
+                timeout=45,
             )
             for result in results:
                 _fill_pdf_url(result)
             return name, results, None
+        except asyncio.TimeoutError:
+            return name, [], "Source timed out after 45 seconds."
         except httpx.ConnectError:
             return name, [], "Connection failed: network unreachable."
         except httpx.TimeoutException:

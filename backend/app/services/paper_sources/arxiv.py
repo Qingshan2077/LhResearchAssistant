@@ -1,5 +1,6 @@
 """arXiv API 数据源 — 使用 arxiv 包"""
 
+import asyncio
 import arxiv
 
 from app.services.paper_sources import PaperSource, PaperSourceResult
@@ -25,7 +26,12 @@ class ArxivSource(PaperSource):
             sort_by=arxiv.SortCriterion.Relevance,
         )
 
-        for result in self.client.results(search):
+        # The arxiv package is synchronous. Materialize its iterator in a
+        # worker thread so it cannot block the FastAPI event loop and the
+        # other search sources.
+        source_results = await asyncio.to_thread(lambda: list(self.client.results(search)))
+
+        for result in source_results:
             year = result.published.year if result.published else None
             # 年份过滤
             if year_from and year and year < year_from:

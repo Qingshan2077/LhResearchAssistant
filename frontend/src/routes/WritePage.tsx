@@ -17,7 +17,7 @@ import {
   Wand2,
 } from "lucide-react";
 import clsx from "clsx";
-import { api, type Paper } from "../lib/api";
+import { api, apiUrl, type Paper } from "../lib/api";
 import { t } from "../i18n";
 import { useSettingsStore } from "../stores/settingsStore";
 
@@ -215,7 +215,7 @@ export default function WritePage() {
     setGeneratingSection(sectionName);
     setSectionContent((prev) => ({ ...prev, [sectionName]: "" }));
     try {
-      const response = await fetch(`/api/v1/writing/projects/${selectedProject.id}/generate-section`, {
+      const response = await fetch(apiUrl(`writing/projects/${selectedProject.id}/generate-section`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

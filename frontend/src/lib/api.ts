@@ -1,10 +1,29 @@
 import ky from "ky";
 
-// Dev: Vite proxy handles /api → localhost:8787
-// Prod: direct HTTP to sidecar backend on localhost:8787
-const API_BASE =
+// Dev: Vite proxy handles /api → 127.0.0.1:8787.
+// Prod: connect directly to the bundled sidecar backend.
+export const API_BASE = (
   import.meta.env.VITE_API_BASE ||
-  (import.meta.env.PROD ? "http://localhost:8787/api/v1" : "/api/v1");
+  (import.meta.env.PROD ? "http://127.0.0.1:8787/api/v1" : "/api/v1")
+).replace(/\/$/, "");
+
+export function apiUrl(path = ""): string {
+  return `${API_BASE}/${path.replace(/^\//, "")}`;
+}
+
+export function websocketUrl(path: string): string {
+  const normalizedPath = path.replace(/^\//, "");
+
+  if (API_BASE.startsWith("http")) {
+    const url = new URL(apiUrl(normalizedPath));
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return url.toString();
+  }
+
+  // Vite serves the frontend in development; connect directly because its
+  // HTTP proxy is not present in an installed Tauri application.
+  return `ws://127.0.0.1:8787/api/v1/${normalizedPath}`;
+}
 
 export const api = ky.create({
   prefixUrl: API_BASE,

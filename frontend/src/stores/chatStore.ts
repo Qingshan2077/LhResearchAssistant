@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { websocketUrl } from "../lib/api";
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -14,19 +15,7 @@ interface ChatStore {
 }
 
 function wsUrl() {
-  const apiBase = import.meta.env.VITE_API_BASE as string | undefined;
-  if (apiBase?.startsWith("http")) {
-    const url = new URL(apiBase);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    url.pathname = `${url.pathname.replace(/\/$/, "")}/ws`;
-    return url.toString();
-  }
-
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  if (window.location.port === "1420") {
-    return `${protocol}//localhost:8787/api/v1/ws`;
-  }
-  return `${protocol}//${window.location.host}/api/v1/ws`;
+  return websocketUrl("ws");
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({

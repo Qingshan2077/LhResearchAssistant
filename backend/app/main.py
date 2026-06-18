@@ -1,5 +1,6 @@
 """Research Assistant Backend — FastAPI 入口"""
 
+import argparse
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,10 +52,17 @@ app.include_router(socratic.router, prefix="/api/v1", tags=["ideas"])
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Research Assistant backend")
+    parser.add_argument("--host", default=settings.host)
+    parser.add_argument("--port", type=int, default=settings.port)
+    args = parser.parse_args()
+
     uvicorn.run(
-        "app.main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=True,
+        app,
+        host=args.host,
+        port=args.port,
+        # The packaged Tauri sidecar must stay a single process. Development
+        # reload is enabled by the external `uvicorn ... --reload` command.
+        reload=False,
         log_level=settings.log_level,
     )

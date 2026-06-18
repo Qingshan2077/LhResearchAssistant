@@ -3,6 +3,8 @@ import {
   AlertCircle,
   BookOpenCheck,
   Check,
+  ChevronDown,
+  ChevronUp,
   Database,
   ExternalLink,
   FileText,
@@ -15,7 +17,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { t } from "../i18n";
-import { api, type ComparisonTable, type Paper } from "../lib/api";
+import { api, apiUrl, type ComparisonTable, type Paper } from "../lib/api";
 import { usePaperStore } from "../stores/paperStore";
 import { useSettingsStore } from "../stores/settingsStore";
 
@@ -40,6 +42,7 @@ export default function SearchPage() {
   const [askStatus, setAskStatus] = useState("");
   const [comparing, setComparing] = useState(false);
   const [comparisonTable, setComparisonTable] = useState<ComparisonTable | null>(null);
+  const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
   const reviewRef = useRef<HTMLDivElement>(null);
 
   const selectedPapers = useMemo(
@@ -56,6 +59,7 @@ export default function SearchPage() {
       if (!trimmed) return;
 
       setSelectedIds(new Set());
+      setWorkspaceExpanded(false);
       setReviewContent("");
       setAskAnswer("");
       setAskStatus("");
@@ -78,6 +82,7 @@ export default function SearchPage() {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      if (next.size === 0) setWorkspaceExpanded(false);
       return next;
     });
   };
@@ -115,7 +120,7 @@ export default function SearchPage() {
         return;
       }
 
-      const response = await fetch("/api/v1/papers/ask", {
+      const response = await fetch(apiUrl("papers/ask"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paper_ids: paperIds, question: askQuestion, top_k: 8 }),
@@ -199,7 +204,7 @@ export default function SearchPage() {
         .filter((paper) => selectedPapers.some((selected) => selected.title === paper.title))
         .map((paper) => paper.id);
 
-      const response = await fetch("/api/v1/search/generate-review", {
+      const response = await fetch(apiUrl("search/generate-review"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -252,13 +257,14 @@ export default function SearchPage() {
         json: selectedPapers.map((paper) => toPaperCreate(paper, "default")),
       });
       setSelectedIds(new Set());
+      setWorkspaceExpanded(false);
     } catch (err) {
       console.error("Import failed", err);
     }
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5">
+    <div className="flex min-h-full flex-col gap-5">
       <section className="relative overflow-hidden rounded-lg border border-border bg-card p-5 shadow-sm">
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyan-400 via-violet-500 to-amber-300" />
         <div className="flex flex-col gap-5">
@@ -371,68 +377,86 @@ export default function SearchPage() {
 
       {selectedIds.size > 0 && (
         <section className="overflow-hidden rounded-lg border border-cyan-400/30 bg-card shadow-[0_18px_60px_rgba(14,165,233,0.10)]">
-          <div className="border-b border-border bg-gradient-to-r from-cyan-500/10 via-violet-500/10 to-amber-400/10 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => setWorkspaceExpanded((expanded) => !expanded)}
+            aria-expanded={workspaceExpanded}
+            className="w-full bg-gradient-to-r from-cyan-500/10 via-violet-500/10 to-amber-400/10 px-4 py-3 text-left transition hover:from-cyan-500/15 hover:via-violet-500/15 hover:to-amber-400/15"
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-foreground">{t(language, "selectedWorkspaceTitle")}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">{t(language, "selectedWorkspaceSubtitle")}</div>
+                {workspaceExpanded && (
+                  <div className="mt-0.5 text-xs text-muted-foreground">{t(language, "selectedWorkspaceSubtitle")}</div>
+                )}
               </div>
-              <div className="rounded-md border border-border bg-background/70 px-2.5 py-1 text-xs text-muted-foreground">
-                {selectedIds.size} {t(language, "selectedCount")}
+              <div className="flex items-center gap-2">
+                <div className="rounded-md border border-border bg-background/70 px-2.5 py-1 text-xs text-muted-foreground">
+                  {selectedIds.size} {t(language, "selectedCount")}
+                </div>
+                {workspaceExpanded ? (
+                  <ChevronUp size={17} className="text-muted-foreground" />
+                ) : (
+                  <ChevronDown size={17} className="text-muted-foreground" />
+                )}
               </div>
             </div>
-          </div>
+          </button>
 
-          <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
-            <div className="min-w-0">
-              <div className="flex flex-col gap-2 md:flex-row">
-                <input
-                  value={askQuestion}
-                  onChange={(e) => setAskQuestion(e.target.value)}
-                  placeholder={t(language, "askPlaceholder")}
-                  className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/25"
-                />
-                <button
-                  onClick={askPapers}
-                  disabled={asking || !askQuestion.trim()}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-cyan-600 px-4 text-sm font-medium text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {asking ? <Loader2 size={16} className="animate-spin" /> : <MessageSquare size={16} />}
-                  {t(language, "ask")}
-                </button>
+          {workspaceExpanded && (
+            <>
+              <div className="grid gap-4 border-t border-border p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="min-w-0">
+                  <div className="flex flex-col gap-2 md:flex-row">
+                    <input
+                      value={askQuestion}
+                      onChange={(e) => setAskQuestion(e.target.value)}
+                      placeholder={t(language, "askPlaceholder")}
+                      className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/25"
+                    />
+                    <button
+                      onClick={askPapers}
+                      disabled={asking || !askQuestion.trim()}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-cyan-600 px-4 text-sm font-medium text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {asking ? <Loader2 size={16} className="animate-spin" /> : <MessageSquare size={16} />}
+                      {t(language, "ask")}
+                    </button>
+                  </div>
+
+                  {askStatus && <div className="mt-2 text-xs text-cyan-600 dark:text-cyan-300">{askStatus}</div>}
+                  {askAnswer && (
+                    <div className="mt-3 max-h-56 overflow-auto rounded-md border border-border bg-background/70 p-3 text-sm leading-6 text-muted-foreground">
+                      <div className="prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(askAnswer) }} />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-2 md:flex-row lg:flex-col">
+                  <button
+                    onClick={generateComparison}
+                    disabled={selectedIds.size < 2 || comparing}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {comparing ? <Loader2 size={16} className="animate-spin" /> : <Table2 size={16} />}
+                    {t(language, "compare")}
+                  </button>
+                  <div className="text-xs text-muted-foreground">{t(language, "compareRequires")}</div>
+                </div>
               </div>
 
-              {askStatus && <div className="mt-2 text-xs text-cyan-600 dark:text-cyan-300">{askStatus}</div>}
-              {askAnswer && (
-                <div className="mt-3 max-h-56 overflow-auto rounded-md border border-border bg-background/70 p-3 text-sm leading-6 text-muted-foreground">
-                  <div className="prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(askAnswer) }} />
+              {comparisonTable && (
+                <div className="border-t border-border p-4">
+                  <PaperComparisonTable data={comparisonTable} language={language} />
                 </div>
               )}
-            </div>
-
-            <div className="flex flex-col gap-2 md:flex-row lg:flex-col">
-              <button
-                onClick={generateComparison}
-                disabled={selectedIds.size < 2 || comparing}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {comparing ? <Loader2 size={16} className="animate-spin" /> : <Table2 size={16} />}
-                {t(language, "compare")}
-              </button>
-              <div className="text-xs text-muted-foreground">{t(language, "compareRequires")}</div>
-            </div>
-          </div>
-
-          {comparisonTable && (
-            <div className="border-t border-border p-4">
-              <PaperComparisonTable data={comparisonTable} language={language} />
-            </div>
+            </>
           )}
         </section>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.48fr)]">
-        <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
+      <div className="grid min-h-[480px] flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.48fr)]">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2 text-sm font-medium">
               <BookOpenCheck size={17} className="text-cyan-500" />
@@ -441,7 +465,7 @@ export default function SearchPage() {
             {hasSearched && <span className="line-clamp-1 text-xs text-muted-foreground">"{searchQuery}"</span>}
           </div>
 
-          <div className="h-full overflow-auto p-3">
+          <div className="min-h-0 flex-1 overflow-auto p-3">
             {papers.length === 0 && !loading && (
               <EmptyState
                 title={hasSearched ? t(language, "noPapersFound") : t(language, "startSearchTitle")}
@@ -521,7 +545,7 @@ export default function SearchPage() {
           </div>
         </section>
 
-        <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Sparkles size={17} className="text-violet-500" />
@@ -534,7 +558,7 @@ export default function SearchPage() {
               </span>
             )}
           </div>
-          <div ref={reviewRef} className="h-full overflow-auto p-4 text-sm leading-6 text-muted-foreground">
+          <div ref={reviewRef} className="min-h-0 flex-1 overflow-auto p-4 text-sm leading-6 text-muted-foreground">
             {reviewContent ? (
               <div className="prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(reviewContent) }} />
             ) : (

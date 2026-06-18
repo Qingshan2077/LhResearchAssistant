@@ -1,7 +1,23 @@
 """全局配置"""
 
+import os
+import sys
 from pathlib import Path
 from pydantic_settings import BaseSettings
+
+
+def _default_data_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        legacy_dir = Path.cwd() / "data"
+        if (legacy_dir / "papers.db").is_file():
+            return legacy_dir
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        base_dir = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
+        return base_dir / "Research Assistant" / "data"
+    return Path("./data")
+
+
+_DATA_DIR = _default_data_dir()
 
 
 class Settings(BaseSettings):
@@ -11,15 +27,20 @@ class Settings(BaseSettings):
     log_level: str = "info"
 
     # 数据路径
-    data_dir: str = "./data"
-    chroma_dir: str = "./data/chroma_db"
-    db_path: str = "./data/papers.db"
-    papers_cache_dir: str = "./data/papers_cache"
-    writing_projects_dir: str = "./data/writing_projects"
-    graphml_path: str = "./data/knowledge_graph.graphml"
+    data_dir: str = str(_DATA_DIR)
+    chroma_dir: str = str(_DATA_DIR / "chroma_db")
+    db_path: str = str(_DATA_DIR / "papers.db")
+    papers_cache_dir: str = str(_DATA_DIR / "papers_cache")
+    writing_projects_dir: str = str(_DATA_DIR / "writing_projects")
+    graphml_path: str = str(_DATA_DIR / "knowledge_graph.graphml")
 
     # CORS
-    cors_origins: str = "http://localhost:1420,tauri://localhost"
+    cors_origins: str = (
+        "http://localhost:1420,"
+        "http://tauri.localhost,"
+        "https://tauri.localhost,"
+        "tauri://localhost"
+    )
 
     # 默认 LLM（用户未配置时）
     default_deepseek_api_key: str = ""

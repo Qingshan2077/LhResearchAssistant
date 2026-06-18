@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { api, type CitationGraphData, type CitationGraphNode, type Paper } from "../lib/api";
+import { api, apiUrl, type CitationGraphData, type CitationGraphNode, type Paper } from "../lib/api";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
 import {
   ArrowLeft,
@@ -96,7 +96,7 @@ export default function ReaderPage() {
         setPaper(p);
         setNotes(p.notes || "");
         if (p.pdf_path) {
-          setPdfUrl(`/api/v1/papers/${id}/pdf?t=${Date.now()}`);
+          setPdfUrl(`${apiUrl(`papers/${id}/pdf`)}?t=${Date.now()}`);
         }
         setCitationStatus({
           total: p.citation_verified?.length || 0,
@@ -125,7 +125,7 @@ export default function ReaderPage() {
     if (!id) return;
     setParsing(true);
     try {
-      const response = await fetch(`/api/v1/papers/${id}/parse`, {
+      const response = await fetch(apiUrl(`papers/${id}/parse`), {
         method: "POST",
       });
       const reader = response.body?.getReader();
@@ -179,7 +179,7 @@ export default function ReaderPage() {
       if (result.status === "downloaded" || result.status === "exists") {
         const next = await api.get(`papers/${id}`).json<Paper>();
         setPaper(next);
-        setPdfUrl(`/api/v1/papers/${id}/pdf?t=${Date.now()}`);
+        setPdfUrl(`${apiUrl(`papers/${id}/pdf`)}?t=${Date.now()}`);
       } else {
         setPaper((prev) => prev ? { ...prev, pdf_download_error: result.error || "PDF download failed." } : prev);
       }
@@ -194,7 +194,7 @@ export default function ReaderPage() {
     setActiveTab("citations");
     setVerificationProgress("准备提取引用…");
     try {
-      const response = await fetch(`/api/v1/papers/${id}/verify-citations`, { method: "POST" });
+      const response = await fetch(apiUrl(`papers/${id}/verify-citations`), { method: "POST" });
       await readSse(response, (data) => {
         if (data.type === "start") {
           setVerificationProgress(`发现 ${data.total || 0} 条候选引用`);
@@ -296,7 +296,7 @@ export default function ReaderPage() {
               <iframe
                 key={pdfUrl || paper.pdf_path}
                 title={paper.title}
-                src={pdfUrl || `/api/v1/papers/${id}/pdf`}
+                src={pdfUrl || apiUrl(`papers/${id}/pdf`)}
                 className="h-full w-full border-0 bg-background"
               />
             ) : (

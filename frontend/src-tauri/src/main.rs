@@ -114,7 +114,7 @@ fn main() {
                         if let Some(p) = guard.take() {
                             match p {
                                 BackendProcess::Sidecar(c) => { c.kill().ok(); },
-                                BackendProcess::Uvicorn(c) => { c.kill().ok(); },
+                                BackendProcess::Uvicorn(mut c) => { c.kill().ok(); },
                             }
                         }
                     };
@@ -133,7 +133,7 @@ fn main() {
                     if let Some(p) = guard.take() {
                         match p {
                             BackendProcess::Sidecar(c) => { c.kill().ok(); },
-                            BackendProcess::Uvicorn(c) => { c.kill().ok(); },
+                            BackendProcess::Uvicorn(mut c) => { c.kill().ok(); },
                         }
                     }
                 };

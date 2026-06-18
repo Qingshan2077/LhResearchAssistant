@@ -46,6 +46,7 @@ export const usePaperStore = create<PaperStore>((set, get) => ({
     try {
       const resp = await api
         .post("search", {
+          timeout: 90000,
           json: {
             project_id: "default",
             query,

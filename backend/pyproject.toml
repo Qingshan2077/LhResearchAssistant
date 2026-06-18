@@ -39,7 +39,10 @@ dev = [
 Homepage = "https://github.com/your-username/research-assistant"
 
 [tool.uv]
-dev-dependencies = ["research-assistant-backend[dev]"]
+dev-dependencies = [
+    "pyinstaller>=6.21.0",
+    "research-assistant-backend[dev]",
+]
 
 [tool.ruff]
 line-length = 100

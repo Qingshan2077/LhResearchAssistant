@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api } from "../lib/api";
+import { api, websocketUrl } from "../lib/api";
 
 export type SocraticMessage = {
   role: "user" | "assistant";
@@ -38,19 +38,7 @@ interface SocraticState {
 }
 
 function socraticWsUrl(sessionId: string) {
-  const apiBase = import.meta.env.VITE_API_BASE as string | undefined;
-  if (apiBase?.startsWith("http")) {
-    const url = new URL(apiBase);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    url.pathname = `${url.pathname.replace(/\/$/, "")}/ideas/socratic/${sessionId}`;
-    return url.toString();
-  }
-
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  if (window.location.port === "1420") {
-    return `${protocol}//localhost:8787/api/v1/ideas/socratic/${sessionId}`;
-  }
-  return `${protocol}//${window.location.host}/api/v1/ideas/socratic/${sessionId}`;
+  return websocketUrl(`ideas/socratic/${sessionId}`);
 }
 
 export const useSocraticStore = create<SocraticState>((set, get) => ({

@@ -45,7 +45,7 @@ chroma_db/
 *.swp
 *.swo
 *~
-.jbeval
+.jbeval/
 
 # OS 
 .DS_Store
