@@ -6,83 +6,53 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{Emitter, Manager};
-use tauri_plugin_shell::{process::CommandChild, ShellExt};
+use tauri::Manager;
+use tauri_plugin_shell::ShellExt;
 
-enum BackendProcess {
-    Sidecar(CommandChild),
-    Uvicorn(Child),
-}
+struct BackendChild(Mutex<Option<Child>>);
 
-impl BackendProcess {
-    fn kill(self) -> Result<(), String> {
-        match self {
-            Self::Sidecar(child) => child.kill().map_err(|e| e.to_string()),
-            Self::Uvicorn(mut child) => {
-                child.kill().map_err(|e| e.to_string())?;
-                child.wait().map_err(|e| e.to_string())?;
-                Ok(())
+/// Try sidecar (production); fall back to uvicorn (dev).
+fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
+    // Strategy 1: sidecar (bundled in installer)
+    if let Ok(cmd) = app.shell().sidecar("research-backend") {
+        println!("[backend] spawning sidecar...");
+        match cmd
+            .args(["--port", "8787", "--host", "127.0.0.1"])
+            .spawn()
+        {
+            Ok((_, child)) => {
+                println!("[backend] sidecar started OK");
+                return Ok(child);
             }
+            Err(e) => println!("[backend] sidecar spawn failed: {e}"),
         }
     }
+
+    // Strategy 2: uvicorn (dev mode, Python must be on PATH)
+    println!("[backend] falling back to uvicorn...");
+    Command::new("uvicorn")
+        .args(["app.main:app", "--port", "8787", "--host", "127.0.0.1"])
+        .current_dir("../backend")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("uvicorn failed: {e}"))
 }
 
-struct PythonBackend(Mutex<Option<BackendProcess>>);
-
-/// Try to launch the backend sidecar (production) or uvicorn (dev fallback).
-fn launch_backend(app: &tauri::AppHandle) -> Result<BackendProcess, String> {
-    // ── Strategy 1: Sidecar (production build) ──
-    // Tauri resolves externalBin internally via the shell plugin.
-    // No manual path checking needed — if the binary isn't there,
-    // .sidecar() returns Err and we fall through to uvicorn.
-    match app.shell().sidecar("research-backend") {
-        Ok(cmd) => {
-            println!("[backend] Attempting sidecar launch...");
-            let (_, child) = cmd
-                .args(["--port", "8787", "--host", "127.0.0.1"])
-                .spawn()
-                .map_err(|e| format!("sidecar spawn: {}", e))?;
-            println!("[backend] Sidecar launched OK");
-            Ok(BackendProcess::Sidecar(child))
-        }
-        Err(e) => {
-            // ── Strategy 2: uvicorn (dev mode, needs Python installed) ──
-            println!("[backend] Sidecar unavailable ({}), falling back to uvicorn", e);
-            Command::new("uvicorn")
-                .args(["app.main:app", "--port", "8787", "--host", "127.0.0.1"])
-                .current_dir("../backend")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .map(BackendProcess::Uvicorn)
-                .map_err(|e| format!("Failed to start uvicorn: {}", e))
-        }
-    }
-}
-
-/// Health check via TCP connect (no extra dependencies needed).
+/// Block until port 8787 responds to a health-check GET.
 fn wait_for_backend() -> bool {
     for i in 0..30 {
-        // Try raw TCP connect to port 8787
-        if TcpStream::connect_timeout(
+        if let Ok(mut s) = TcpStream::connect_timeout(
             &"127.0.0.1:8787".parse().unwrap(),
             Duration::from_secs(2),
-        )
-        .is_ok()
-        {
-            // Also send a minimal HTTP GET to confirm it's FastAPI, not something else
-            if let Ok(mut stream) = TcpStream::connect_timeout(
-                &"127.0.0.1:8787".parse().unwrap(),
-                Duration::from_secs(1),
-            ) {
-                let _ = stream.write_all(b"GET /api/v1/health HTTP/1.0\r\nHost: localhost\r\n\r\n");
-                let mut buf = [0u8; 256];
-                if stream.read(&mut buf).is_ok() {
-                    let resp = String::from_utf8_lossy(&buf);
-                    if resp.contains("200 OK") || resp.contains("ok") || resp.contains("healthy") {
-                        println!("[backend] Health check passed (attempt {})", i + 1);
-                        return true;
-                    }
+        ) {
+            let _ = s.write_all(b"GET /api/v1/health HTTP/1.0\r\nHost: localhost\r\n\r\n");
+            let mut buf = [0u8; 256];
+            if s.read(&mut buf).is_ok() {
+                let resp = String::from_utf8_lossy(&buf);
+                if resp.contains("200 OK") {
+                    println!("[backend] health check passed (attempt {})", i + 1);
+                    return true;
                 }
             }
         }
@@ -91,78 +61,58 @@ fn wait_for_backend() -> bool {
     false
 }
 
-#[tauri::command]
-fn start_backend(app: tauri::AppHandle, state: tauri::State<PythonBackend>) -> Result<(), String> {
-    start_backend_inner(&app, state.inner())
-}
-
-fn start_backend_inner(app: &tauri::AppHandle, state: &PythonBackend) -> Result<(), String> {
-    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-    if guard.is_some() {
-        return Ok(()); // already running
-    }
-
-    let child = launch_backend(app)?;
-
-    // Wait for backend to be ready
-    if wait_for_backend() {
-        *guard = Some(child);
-        println!("[backend] Ready on http://127.0.0.1:8787");
-        Ok(())
-    } else {
-        // Kill the child if health check failed
-        let _ = child.kill();
-        Err("Backend health check timed out after 30s. Check that port 8787 is free.".to_string())
-    }
-}
-
-#[tauri::command]
-fn stop_backend(state: tauri::State<PythonBackend>) -> Result<(), String> {
-    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-    if let Some(child) = guard.take() {
-        child
-            .kill()
-            .map_err(|e| format!("Failed to stop backend: {}", e))?;
-        println!("[backend] Stopped");
-    }
-    Ok(())
-}
-
 fn main() {
     tauri::Builder::default()
-        .manage(PythonBackend(Mutex::new(None)))
+        .manage(BackendChild(Mutex::new(None)))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let handle = app.handle().clone();
-            std::thread::spawn(move || {
-                // Give the window a moment to render
-                std::thread::sleep(Duration::from_secs(2));
 
-                let state = handle.state::<PythonBackend>();
-                if let Err(e) = start_backend_inner(&handle, state.inner()) {
-                    eprintln!("[backend] Launch failed: {}", e);
-                    let _ = handle.emit("backend-error", e);
-                } else {
+            // ── Launch backend exactly once ──
+            std::thread::spawn(move || {
+                let child = match spawn_backend(&handle) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("[backend] launch failed: {e}");
+                        let _ = handle.emit("backend-error", e);
+                        return;
+                    }
+                };
+
+                // Store so we can kill it on exit
+                let state = handle.state::<BackendChild>();
+                if let Ok(mut guard) = state.0.lock() {
+                    *guard = Some(child);
+                }
+
+                // Wait for readiness
+                if wait_for_backend() {
+                    println!("[backend] ready on http://127.0.0.1:8787");
                     let _ = handle.emit("backend-ready", ());
+                } else {
+                    eprintln!("[backend] health check timed out");
+                    let _ = handle.emit("backend-error",
+                        "Timed out waiting for backend on port 8787");
                 }
             });
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![start_backend, stop_backend])
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app, event| {
+        .on_event(|app, event| {
+            // ── Kill backend on exit ──
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                let state = app.state::<PythonBackend>();
+                let state = app.state::<BackendChild>();
                 if let Ok(mut guard) = state.0.lock() {
-                    if let Some(child) = guard.take() {
+                    if let Some(mut child) = guard.take() {
                         child.kill().ok();
-                        println!("[backend] Cleaned up on exit");
+                        child.wait().ok();
+                        println!("[backend] cleaned up on exit");
                     }
-                };
+                }
             }
-        });
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }
