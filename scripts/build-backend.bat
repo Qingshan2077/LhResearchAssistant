@@ -35,10 +35,12 @@ REM ---- Step 2: 确保后端依赖已安装 -----------------------------------
 cd /d "%BACKEND_DIR%"
 
 echo [INFO] 检查后端依赖...
-uv sync 2>nul
+REM 项目由 uv 管理，pyproject.toml 是源文件
+uv sync
 if %ERRORLEVEL% neq 0 (
-    echo [WARN] uv sync 失败，尝试 pip install...
-    pip install -e .
+    echo [FAIL] uv sync 失败，请检查 pyproject.toml 是否完整
+    pause
+    exit /b 1
 )
 
 echo [OK] 后端依赖已就绪
@@ -46,10 +48,10 @@ echo [OK] 后端依赖已就绪
 REM ---- Step 3: 运行 PyInstaller --------------------------------------------
 echo.
 echo [INFO] 开始打包后端 (PyInstaller)...
-echo [INFO] 使用 python -m PyInstaller 确保走当前虚拟环境...
+echo [INFO] 使用 uv run 确保走项目虚拟环境...
 
-REM IMPORTANT: 使用 python -m 而非直接 pyinstaller，避免解析到系统路径
-python -m PyInstaller pack.spec --clean --noconfirm
+REM 项目由 uv 管理，统一用 uv run 而非直接 pyinstaller 或 python -m
+uv run pyinstaller pack.spec --clean --noconfirm
 if %ERRORLEVEL% neq 0 (
     echo [FAIL] PyInstaller 打包失败，请检查错误信息
     pause
