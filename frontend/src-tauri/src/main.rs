@@ -17,15 +17,6 @@ enum BackendProcess {
     Uvicorn(Child),
 }
 
-impl BackendProcess {
-    fn kill(&mut self) {
-        match self {
-            BackendProcess::Sidecar(c) => c.kill().ok(),
-            BackendProcess::Uvicorn(c) => c.kill().ok(),
-        };
-    }
-}
-
 struct BackendChild(Mutex<Option<BackendProcess>>);
 
 /// Try sidecar (production); fall back to uvicorn (dev).
@@ -37,7 +28,8 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<BackendProcess, String> {
             .args(["--port", "8787", "--host", "127.0.0.1"])
             .spawn()
         {
-            Ok((child, _rx)) => {
+            // spawn() returns (Receiver<CommandEvent>, CommandChild)
+            Ok((_rx, child)) => {
                 println!("[backend] sidecar started OK");
                 return Ok(BackendProcess::Sidecar(child));
             }
@@ -105,7 +97,6 @@ fn main() {
                 if let Ok(mut guard) = state.0.lock() {
                     *guard = Some(process);
                 }
-                // process is now owned by the Mutex; local binding is dead
 
                 // Wait for readiness
                 if wait_for_backend() {
@@ -117,12 +108,16 @@ fn main() {
                         "backend-error",
                         "Timed out waiting for backend on port 8787",
                     );
-                    // Kill via the mutex
+                    // Kill the unresponsive process via the mutex
+                    let state = handle.state::<BackendChild>();
                     if let Ok(mut guard) = state.0.lock() {
-                        if let Some(ref mut p) = *guard {
-                            p.kill();
+                        if let Some(p) = guard.take() {
+                            match p {
+                                BackendProcess::Sidecar(c) => { c.kill().ok(); },
+                                BackendProcess::Uvicorn(c) => { c.kill().ok(); },
+                            }
                         }
-                    }
+                    };
                 }
             });
 
@@ -135,11 +130,13 @@ fn main() {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 let state = app_handle.state::<BackendChild>();
                 if let Ok(mut guard) = state.0.lock() {
-                    if let Some(ref mut p) = *guard {
-                        p.kill();
-                        println!("[backend] cleaned up on exit");
+                    if let Some(p) = guard.take() {
+                        match p {
+                            BackendProcess::Sidecar(c) => { c.kill().ok(); },
+                            BackendProcess::Uvicorn(c) => { c.kill().ok(); },
+                        }
                     }
-                }
+                };
             }
         });
 }
