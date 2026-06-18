@@ -14,38 +14,31 @@ struct PythonBackend(Mutex<Option<Child>>);
 /// Try to launch the backend sidecar (production) or uvicorn (dev fallback).
 fn launch_backend(app: &tauri::AppHandle) -> Result<Child, String> {
     // ── Strategy 1: Sidecar (production build) ──
-    let sidecar_path = app
-        .path()
-        .resolve("binaries/research-backend", tauri::path::BaseDirectory::Resource)
-        .ok();
-
-    if let Some(ref path) = sidecar_path {
-        if path.exists() {
-            println!("[backend] Launching sidecar: {:?}", path);
-            let (_, child) = app
-                .shell()
-                .sidecar("research-backend")
-                .map_err(|e| format!("sidecar creation: {}", e))?
+    // Tauri resolves externalBin internally via the shell plugin.
+    // No manual path checking needed — if the binary isn't there,
+    // .sidecar() returns Err and we fall through to uvicorn.
+    match app.shell().sidecar("research-backend") {
+        Ok(cmd) => {
+            println!("[backend] Attempting sidecar launch...");
+            let (_, child) = cmd
                 .args(["--port", "8787", "--host", "127.0.0.1"])
                 .spawn()
                 .map_err(|e| format!("sidecar spawn: {}", e))?;
             println!("[backend] Sidecar launched OK");
-            return Ok(child);
+            Ok(child)
+        }
+        Err(e) => {
+            // ── Strategy 2: uvicorn (dev mode, needs Python installed) ──
+            println!("[backend] Sidecar unavailable ({}), falling back to uvicorn", e);
+            Command::new("uvicorn")
+                .args(["app.main:app", "--port", "8787", "--host", "127.0.0.1"])
+                .current_dir("../backend")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to start uvicorn: {}", e))
         }
     }
-
-    // ── Strategy 2: uvicorn (dev mode, needs Python installed) ──
-    println!("[backend] Falling back to uvicorn (dev mode)");
-    let child = Command::new("uvicorn")
-        .args(["app.main:app", "--port", "8787", "--host", "127.0.0.1"])
-        .current_dir("../backend")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("Failed to start uvicorn: {}", e))?;
-
-    println!("[backend] uvicorn launched OK");
-    Ok(child)
 }
 
 /// Health check via TCP connect (no extra dependencies needed).

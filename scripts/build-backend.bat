@@ -64,33 +64,24 @@ echo [INFO] 拷贝到 Tauri sidecar 目录...
 
 REM Tauri v2 sidecar 命名规则: {binary_name}-{target_triple}.exe
 REM Windows x64 的目标三元组: x86_64-pc-windows-msvc
+REM PyInstaller --onefile 模式输出为 dist\research-backend.exe
 set SIDECAR_NAME=research-backend-x86_64-pc-windows-msvc.exe
 
 if not exist "%TAURI_BIN_DIR%" mkdir "%TAURI_BIN_DIR%"
 
-REM 使用 --onedir 模式，需要拷贝整个目录
-REM 实际上 Tauri sidecar 只需要主 .exe，但 --onedir 的 exe 依赖同目录的 .pyd
-REM 所以我们要拷贝整个目录
-if exist "%TAURI_BIN_DIR%\%SIDECAR_NAME%" del /q "%TAURI_BIN_DIR%\%SIDECAR_NAME%"
-xcopy /E /I /Y "%BACKEND_DIR%\dist\research-backend" "%TAURI_BIN_DIR%\research-backend\"
+REM 直接拷贝 --onefile 生成的单 exe，不嵌套目录
+copy /Y "%BACKEND_DIR%\dist\research-backend.exe" "%TAURI_BIN_DIR%\%SIDECAR_NAME%"
 
-REM 主 exe 改名以匹配 sidecar 命名规则
-if exist "%TAURI_BIN_DIR%\research-backend\research-backend.exe" (
-    rename "%TAURI_BIN_DIR%\research-backend\research-backend.exe" "%SIDECAR_NAME%"
-)
-
-echo [OK] 已复制到 %TAURI_BIN_DIR%\
+echo [OK] 已复制: %TAURI_BIN_DIR%\%SIDECAR_NAME%
 
 REM ---- Step 5: 验证 ---------------------------------------------------------
 echo.
 echo [INFO] 验证 sidecar 文件...
-if exist "%TAURI_BIN_DIR%\research-backend\%SIDECAR_NAME%" (
-    echo [OK] Sidecar 就绪: %TAURI_BIN_DIR%\research-backend\%SIDECAR_NAME%
+if exist "%TAURI_BIN_DIR%\%SIDECAR_NAME%" (
+    echo [OK] Sidecar 就绪: %TAURI_BIN_DIR%\%SIDECAR_NAME%
 ) else (
-    echo [WARN] 未找到 %SIDECAR_NAME%，检查目录内容...
-    dir "%TAURI_BIN_DIR%\research-backend\" /B
-    echo.
-    echo 你可能需要手动将 .exe 重命名为 %SIDECAR_NAME%
+    echo [FAIL] Sidecar 未找到！
+    dir "%TAURI_BIN_DIR%\" /B
 )
 
 REM ---- Step 6: 快速测试（可选）----------------------------------------------
