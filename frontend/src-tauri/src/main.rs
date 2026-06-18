@@ -6,13 +6,30 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
+use tauri::Emitter;
 use tauri::Manager;
+use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
-struct BackendChild(Mutex<Option<Child>>);
+/// Unified type: sidecar (production) or uvicorn (dev).
+enum BackendProcess {
+    Sidecar(CommandChild),
+    Uvicorn(Child),
+}
+
+impl BackendProcess {
+    fn kill(&mut self) {
+        match self {
+            BackendProcess::Sidecar(c) => c.kill().ok(),
+            BackendProcess::Uvicorn(c) => c.kill().ok(),
+        };
+    }
+}
+
+struct BackendChild(Mutex<Option<BackendProcess>>);
 
 /// Try sidecar (production); fall back to uvicorn (dev).
-fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
+fn spawn_backend(app: &tauri::AppHandle) -> Result<BackendProcess, String> {
     // Strategy 1: sidecar (bundled in installer)
     if let Ok(cmd) = app.shell().sidecar("research-backend") {
         println!("[backend] spawning sidecar...");
@@ -20,9 +37,9 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
             .args(["--port", "8787", "--host", "127.0.0.1"])
             .spawn()
         {
-            Ok((_, child)) => {
+            Ok((child, _rx)) => {
                 println!("[backend] sidecar started OK");
-                return Ok(child);
+                return Ok(BackendProcess::Sidecar(child));
             }
             Err(e) => println!("[backend] sidecar spawn failed: {e}"),
         }
@@ -30,13 +47,15 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
 
     // Strategy 2: uvicorn (dev mode, Python must be on PATH)
     println!("[backend] falling back to uvicorn...");
-    Command::new("uvicorn")
+    let child = Command::new("uvicorn")
         .args(["app.main:app", "--port", "8787", "--host", "127.0.0.1"])
         .current_dir("../backend")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| format!("uvicorn failed: {e}"))
+        .map_err(|e| format!("uvicorn failed: {e}"))?;
+
+    Ok(BackendProcess::Uvicorn(child))
 }
 
 /// Block until port 8787 responds to a health-check GET.
@@ -70,10 +89,10 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
 
-            // ── Launch backend exactly once ──
+            // ── Launch backend exactly once in a background thread ──
             std::thread::spawn(move || {
-                let child = match spawn_backend(&handle) {
-                    Ok(c) => c,
+                let process = match spawn_backend(&handle) {
+                    Ok(p) => p,
                     Err(e) => {
                         eprintln!("[backend] launch failed: {e}");
                         let _ = handle.emit("backend-error", e);
@@ -81,11 +100,12 @@ fn main() {
                     }
                 };
 
-                // Store so we can kill it on exit
+                // Store into managed state so we can kill it on exit
                 let state = handle.state::<BackendChild>();
                 if let Ok(mut guard) = state.0.lock() {
-                    *guard = Some(child);
+                    *guard = Some(process);
                 }
+                // process is now owned by the Mutex; local binding is dead
 
                 // Wait for readiness
                 if wait_for_backend() {
@@ -93,26 +113,33 @@ fn main() {
                     let _ = handle.emit("backend-ready", ());
                 } else {
                     eprintln!("[backend] health check timed out");
-                    let _ = handle.emit("backend-error",
-                        "Timed out waiting for backend on port 8787");
+                    let _ = handle.emit(
+                        "backend-error",
+                        "Timed out waiting for backend on port 8787",
+                    );
+                    // Kill via the mutex
+                    if let Ok(mut guard) = state.0.lock() {
+                        if let Some(ref mut p) = *guard {
+                            p.kill();
+                        }
+                    }
                 }
             });
 
             Ok(())
         })
-        .on_event(|app, event| {
+        .build(tauri::generate_context!())
+        .expect("error building tauri application")
+        .run(|app_handle, event| {
             // ── Kill backend on exit ──
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                let state = app.state::<BackendChild>();
+                let state = app_handle.state::<BackendChild>();
                 if let Ok(mut guard) = state.0.lock() {
-                    if let Some(mut child) = guard.take() {
-                        child.kill().ok();
-                        child.wait().ok();
+                    if let Some(ref mut p) = *guard {
+                        p.kill();
                         println!("[backend] cleaned up on exit");
                     }
                 }
             }
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        });
 }
