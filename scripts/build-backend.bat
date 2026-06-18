@@ -46,9 +46,10 @@ echo [OK] 后端依赖已就绪
 REM ---- Step 3: 运行 PyInstaller --------------------------------------------
 echo.
 echo [INFO] 开始打包后端 (PyInstaller)...
-echo [INFO] 这将需要 1-5 分钟...
+echo [INFO] 使用 python -m PyInstaller 确保走当前虚拟环境...
 
-pyinstaller pack.spec --clean --noconfirm
+REM IMPORTANT: 使用 python -m 而非直接 pyinstaller，避免解析到系统路径
+python -m PyInstaller pack.spec --clean --noconfirm
 if %ERRORLEVEL% neq 0 (
     echo [FAIL] PyInstaller 打包失败，请检查错误信息
     pause
