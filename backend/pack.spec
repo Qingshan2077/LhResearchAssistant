@@ -1,163 +1,144 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
 PyInstaller spec for packaging the Research Assistant backend as a standalone EXE.
-Run on Windows:  pyinstaller pack.spec
+Run on Windows:  pyinstaller pack.spec --clean --noconfirm
 
-ChromaDB is tricky with PyInstaller due to native extensions + dynamic imports.
-If you get import errors at runtime, add hidden imports below and retry.
+Uses collect_all() for packages with dynamic imports (SQLAlchemy, ChromaDB, etc.)
+to ensure all submodules are bundled.
 """
-
 import os
-import sys
 from pathlib import Path
 
-# ── Block 1: Collect all data files ChromaDB needs ──────────────────────────
-# ChromaDB ships compiled native modules that PyInstaller can't auto-detect.
-# We collect from site-packages/chromadb/ recursively.
-import chromadb
-_chromadb_root = Path(chromadb.__file__).parent
+# ── Force PyInstaller to collect entire packages (not just traced deps) ──────
+# These packages use dynamic/importlib imports that static analysis can't trace.
+from PyInstaller.utils.hooks import collect_all, collect_submodules, collect_data_files
 
-# ── Block 2: Application settings ───────────────────────────────────────────
+# ── Pre-collect per-package ─────────────────────────────────────────────────
+# collect_all() returns (mods: list[str], datas: list[tuple], binaries: list[tuple])
+
+def _pkg(pkg_name):
+    """Collect all modules, data, and binaries for a package."""
+    mods = collect_submodules(pkg_name)
+    datas = collect_data_files(pkg_name, include_py_files=True)
+    return mods, datas
+
+# Critical: SQLAlchemy (ORM + engine + dialects + SQL)
+_sa_mods, _sa_datas = _pkg("sqlalchemy")
+
+# ChromaDB native components
+_cdb_mods, _cdb_datas = _pkg("chromadb")
+
+# FastAPI / starlette / pydantic
+_fa_mods, _fa_datas = _pkg("fastapi")
+_pd_mods, _pd_datas = _pkg("pydantic")
+
+# Others known to have dynamic imports
+_uv_mods, _uv_datas = _pkg("uvicorn")
+
+# ── Application analysis ────────────────────────────────────────────────────
 block_cipher = None
+
+# ChromaDB root for extra data files
+import chromadb as _chromadb_mod
+_chromadb_root = Path(_chromadb_mod.__file__).parent
 
 a = Analysis(
     ['app/main.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        # ChromaDB native data files (compiled .so/.pyd + migrations)
-        (str(_chromadb_root / 'api'), 'chromadb/api'),
-        (str(_chromadb_root / 'db'), 'chromadb/db'),
-        (str(_chromadb_root / 'migrations'), 'chromadb/migrations'),
-    ],
-    hiddenimports=[
+    datas=(
+        # ChromaDB migrations (critical for startup)
+        [
+            (str(_chromadb_root / 'migrations'), 'chromadb/migrations'),
+        ]
+        + _sa_datas
+        + _cdb_datas
+        + _fa_datas
+        + _pd_datas
+        + _uv_datas
+    ),
+    hiddenimports=(
         # ── App modules ──
-        'app',
-        'app.main',
-        'app.config',
-        'app.database',
-        'app.database.sqlite',
-        'app.database.chroma_client',
-        'app.database.usage_tracker',
-        'app.llm',
-        'app.llm.router',
-        'app.llm.providers',
-        'app.agents',
-        'app.agents.review_agent',
-        'app.agents.idea_agent',
-        'app.agents.socratic_agent',
-        'app.agents.failure_checklist_agent',
-        'app.services',
-        'app.services.search_service',
-        'app.services.pdf_download',
-        'app.services.citation_graph',
-        'app.services.comparison_matrix',
-        'app.services.s2_client',
-        'app.services.paper_sources',
-        'app.services.paper_sources.dblp',
-        'app.routers',
-        'app.routers.papers',
-        'app.routers.search',
-        'app.routers.settings',
-        'app.routers.review',
-        'app.routers.socratic',
-        'app.routers.verification',
-        'app.models',
-        'app.models.__init__',
+        [
+            'app',
+            'app.main',
+            'app.config',
+            'app.database',
+            'app.database.sqlite',
+            'app.database.chroma_client',
+            'app.database.usage_tracker',
+            'app.llm',
+            'app.llm.router',
+            'app.llm.providers',
+            'app.agents',
+            'app.agents.review_agent',
+            'app.agents.idea_agent',
+            'app.agents.socratic_agent',
+            'app.agents.failure_checklist_agent',
+            'app.services',
+            'app.services.search_service',
+            'app.services.pdf_download',
+            'app.services.citation_graph',
+            'app.services.comparison_matrix',
+            'app.services.s2_client',
+            'app.services.paper_sources',
+            'app.services.paper_sources.dblp',
+            'app.routers',
+            'app.routers.papers',
+            'app.routers.search',
+            'app.routers.settings',
+            'app.routers.review',
+            'app.routers.socratic',
+            'app.routers.verification',
+            'app.models',
+            'app.models.__init__',
 
-        # ── FastAPI / uvicorn ──
-        'uvicorn',
-        'uvicorn.logging',
-        'uvicorn.loops',
-        'uvicorn.loops.auto',
-        'uvicorn.protocols',
-        'uvicorn.protocols.http',
-        'uvicorn.protocols.http.auto',
-        'uvicorn.protocols.websockets',
-        'uvicorn.protocols.websockets.auto',
-        'uvicorn.middleware',
-        'uvicorn.middleware.wsgi',
-        'fastapi',
-        'fastapi.routing',
-        'fastapi.openapi',
-        'sse_starlette',
+            # ── Core infra (explicit, in case collect_all misses something) ──
+            'alembic',
+            'anyio',
+            'click',
+            'colorama',
+            'h11',
+            'httpcore',
+            'idna',
+            'sniffio',
+            'starlette',
+            'typing_extensions',
 
-        # ── SQLAlchemy ──
-        'sqlalchemy',
-        'sqlalchemy.sql.default_comparator',
-        'sqlalchemy.dialects.sqlite',
+            # ── HTTP / async ──
+            'httpx',
+            'aiofiles',
+            'websockets',
+            'python_multipart',
+            'sse_starlette',
 
-        # ── ChromaDB (the pain points) ──
-        'chromadb',
-        'chromadb.api',
-        'chromadb.api.fastapi',
-        'chromadb.api.segment',
-        'chromadb.db.impl.sqlite',
-        'chromadb.db.impl.grpc',
-        'chromadb.telemetry',
-        'chromadb.telemetry.posthog',
-        'chromadb.quota',
-        'chromadb.rate_limiting',
-        'chromadb.auth',
-        'chromadb.auth.token_auth',
-        'chromadb.utils.embedding_functions',
-        'chromadb.api.models.Collection',
+            # ── ArXiv ──
+            'arxiv',
 
-        # ── HTTP / async ──
-        'httpx',
-        'httpx._transports',
-        'httpx._auth',
-        'aiofiles',
-        'websockets',
-        'websockets.legacy',
-        'websockets.legacy.server',
-        'websockets.legacy.client',
-        'python_multipart',
+            # ── OpenAI / LangGraph ──
+            'openai',
+            'langgraph',
 
-        # ── ArXiv ──
-        'arxiv',
-        'arxiv.arxiv',
+            # ── PyMuPDF ──
+            'fitz',
 
-        # ── OpenAI / LangGraph ──
-        'openai',
-        'openai.resources',
-        'openai.resources.chat',
-        'openai.resources.chat.completions',
-        'langgraph',
-        'langgraph.graph',
-        'langgraph.checkpoint',
-
-        # ── PyMuPDF ──
-        'fitz',
-        'fitz.utils',
-
-        # ── Other ──
-        'pydantic',
-        'pydantic_settings',
-        'yaml',
-        'json',
-        'csv',
-        'xml',
-        'xml.etree',
-        'xml.etree.ElementTree',
-        'email',
-        'email.mime',
-        'email.mime.multipart',
-        'email.mime.text',
-        'http',
-        'http.client',
-        'urllib',
-        'urllib.parse',
-        'asyncio',
-        'concurrent',
-        'concurrent.futures',
-        'multipart',
-        'multiprocessing',
-        'multiprocessing.connection',
-    ],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
+            # ── Standard lib that might be missed ──
+            'email.mime',
+            'email.mime.multipart',
+            'email.mime.text',
+            'xml.etree',
+            'xml.etree.ElementTree',
+            'concurrent',
+            'concurrent.futures',
+            'multipart',
+            'multiprocessing',
+        ]
+        + _sa_mods
+        + _cdb_mods
+        + _fa_mods
+        + _pd_mods
+        + _uv_mods
+    ),
     excludes=[
         'tkinter',
         'matplotlib',
@@ -176,8 +157,8 @@ a = Analysis(
     noarchive=False,
 )
 
-# ── Block 3: Collect all packages ──────────────────────────────────────────
-# ChromaDB + uvicorn have many submodules that need recursive collection
+# ── Build single-file EXE (--onefile) ───────────────────────────────────────
+# ONEfile is preferred for Tauri sidecar — a single .exe is easier to bundle.
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
@@ -201,18 +182,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='research-backend.ico' if os.path.exists('research-backend.ico') else None,
-)
-
-# ── Block 4: Bundle into a single directory (--onedir) ─────────────────────
-# Use ONEDIR for faster startup and easier debugging; switch to ONEFILE only
-# if you specifically need a single .exe (slower startup).
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='research-backend',
 )
