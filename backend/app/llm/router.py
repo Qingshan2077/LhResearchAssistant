@@ -38,7 +38,7 @@ def get_active_provider(db: Session) -> tuple[LLMProvider, LLMConfig]:
     """从 DB 获取最高优先级的活跃 Provider。无配置时返回 DeepSeek（无 key 的占位）"""
     record = (
         db.query(LLMProviderModel)
-        .filter(LLMProviderModel.is_active == True)
+        .filter(LLMProviderModel.is_active)
         .order_by(LLMProviderModel.priority.desc())
         .first()
     )

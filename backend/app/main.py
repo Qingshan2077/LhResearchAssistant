@@ -36,7 +36,7 @@ app.add_middleware(
 
 # ── 路由注册 ──────────────────────────────────────────
 # 每个路由模块注册时自动挂载
-from app.routers import health, search, papers, knowledge, settings as settings_router, streaming, ideas, writing, review, verification, socratic
+from app.routers import health, search, papers, knowledge, settings as settings_router, streaming, ideas, writing, review, verification, socratic  # noqa: E402
 
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(search.router, prefix="/api/v1", tags=["search"])
