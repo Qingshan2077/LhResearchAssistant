@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 from typing import Optional
 
 import httpx
+from loguru import logger
 
 
 SEMANTIC_SCHOLAR_BASE = "https://api.semanticscholar.org/graph/v1"
