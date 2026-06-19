@@ -12,6 +12,8 @@ import re
 import uuid
 from dataclasses import dataclass, field
 
+from loguru import logger
+
 from app.llm import ChatMessage, LLMConfig, LLMProvider
 
 
@@ -506,7 +508,8 @@ Be natural — probe for concrete details, not abstractions.
             ChatMessage(role="system", content=_SOCRATIC_SYSTEM_PROMPT),
             ChatMessage(role="user", content=prompt),
         ], config)
-    except Exception:
+    except Exception as exc:
+        logger.warning("socratic_agent.py operation failed: {}", exc)
         return _fallback_question(session.layer, session.layer_turns.get(session.layer, 0), session)
 
 
@@ -533,7 +536,8 @@ Recent transcript:
             ChatMessage(role="system", content=_SOCRATIC_SYSTEM_PROMPT),
             ChatMessage(role="user", content=prompt),
         ], config)
-    except Exception:
+    except Exception as exc:
+        logger.warning("socratic_agent.py operation failed: {}", exc)
         return f"我们进入下一层：{LAYER_NAMES[next_layer]}。\n\n{_fallback_question(next_layer, 0, session)}"
 
 
@@ -617,7 +621,8 @@ Generate the FINER-scored research question based on the conversation above.
             parsed = json.loads(raw.strip())
         parsed["insights"] = session.insights
         return parsed
-    except Exception:
+    except Exception as exc:
+        logger.warning("socratic_agent.py operation failed: {}", exc)
         return fallback
 
 
@@ -661,7 +666,8 @@ Generate a methodology blueprint for this research question.
         ], config)
         match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
         return json.loads(match.group(1) if match else raw)
-    except Exception:
+    except Exception as exc:
+        logger.warning("socratic_agent.py operation failed: {}", exc)
         return fallback
 
 
@@ -705,7 +711,8 @@ Run a stress-test on this research plan and return structured JSON.
         ], config)
         match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
         return json.loads(match.group(1) if match else raw)
-    except Exception:
+    except Exception as exc:
+        logger.warning("socratic_agent.py operation failed: {}", exc)
         return fallback
 
 
@@ -750,7 +757,8 @@ Convergence: {session.convergence}
         parsed["convergence"] = session.convergence
         parsed["turn_count"] = session.turn_count
         return parsed
-    except Exception:
+    except Exception as exc:
+        logger.warning("socratic_agent.py operation failed: {}", exc)
         return fallback
 
 

@@ -4,6 +4,8 @@ from typing import AsyncGenerator
 from pathlib import Path
 from sqlalchemy.orm import Session
 
+from loguru import logger
+
 from app.database.sqlite import Paper, MindMapNode
 from app.services.pdf_parser import PDFParser
 from app.database.chroma_client import index_paper_chunks
@@ -52,6 +54,7 @@ async def parse_paper_structure(paper: Paper, db: Session) -> AsyncGenerator[dic
     try:
         full_text = PDFParser.extract_text_fast(pdf_path)
     except Exception as e:
+        logger.warning("read_agent.py operation failed: {}", e)
         yield {"type": "error", "message": f"PDF extraction failed: {str(e)}"}
         return
 
@@ -73,6 +76,7 @@ async def parse_paper_structure(paper: Paper, db: Session) -> AsyncGenerator[dic
     try:
         result = await provider.chat(messages, config)
     except Exception as e:
+        logger.warning("read_agent.py operation failed: {}", e)
         yield {"type": "error", "message": f"LLM analysis failed: {str(e)}"}
         return
 
@@ -110,13 +114,15 @@ async def parse_paper_structure(paper: Paper, db: Session) -> AsyncGenerator[dic
         chunk_count = index_paper_chunks(paper.id, full_text)
         yield {"type": "progress", "phase": "chroma_indexed", "chunks": chunk_count}
     except Exception as e:
+        logger.warning("read_agent.py operation failed: {}", e)
         yield {"type": "warning", "phase": "chroma_index_failed", "message": str(e)}
 
     # Step 6: 生成思维图节点
     try:
         _generate_mindmap_nodes(paper, extracted, db)
         yield {"type": "progress", "phase": "mindmap_generated", "paper_id": paper.id}
-    except Exception:
+    except Exception as exc:
+        logger.warning("read_agent.py operation failed: {}", exc)
         pass  # 思维图生成失败不阻塞流程
 
     yield {"type": "done", "paper_id": paper.id}

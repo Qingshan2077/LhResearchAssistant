@@ -9,6 +9,7 @@ from app.llm.openai_compat import OpenAICompatibleProvider
 from app.llm.ollama import OllamaProvider
 from app.config import settings
 from app.database.usage_tracker import UsageTrackingProvider
+from app.services.crypto import decrypt_api_key
 
 # Provider 类映射
 PROVIDER_MAP: dict[str, type[LLMProvider]] = {
@@ -55,7 +56,7 @@ def get_active_provider(db: Session) -> tuple[LLMProvider, LLMConfig]:
 
     cls = PROVIDER_MAP.get(record.name, OpenAICompatibleProvider)
     cfg = LLMConfig(
-        api_key=record.api_key,
+        api_key=decrypt_api_key(record.api_key),
         base_url=record.base_url or DEFAULT_BASE_URLS.get(record.name, ""),
         model=record.default_model or DEFAULT_MODELS.get(record.name, ""),
         max_tokens=record.max_tokens,
@@ -73,7 +74,7 @@ def get_provider_by_id(provider_id: str, db: Session) -> tuple[LLMProvider, LLMC
 
     cls = PROVIDER_MAP.get(record.name, OpenAICompatibleProvider)
     cfg = LLMConfig(
-        api_key=record.api_key,
+        api_key=decrypt_api_key(record.api_key),
         base_url=record.base_url or DEFAULT_BASE_URLS.get(record.name, ""),
         model=record.default_model or DEFAULT_MODELS.get(record.name, ""),
         max_tokens=record.max_tokens,

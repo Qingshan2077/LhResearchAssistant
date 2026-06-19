@@ -1,6 +1,6 @@
 [project]
 name = "research-assistant-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "全流程科研桌面助手后端"
 requires-python = ">=3.11"
 dependencies = [
@@ -19,6 +19,8 @@ dependencies = [
     "aiofiles>=24.1.0",
     "python-multipart>=0.0.12",
     "sse-starlette>=2.0.0",
+    "loguru>=0.7.0",
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]
@@ -31,7 +33,7 @@ all = [
 
 
 [project.urls]
-Homepage = "https://github.com/your-username/research-assistant"
+Homepage = "https://github.com/Qingshan2077/LhResearchAssistant"
 
 [dependency-groups]
 dev = [

@@ -6,6 +6,8 @@ from typing import AsyncGenerator
 
 from sqlalchemy.orm import Session
 
+from loguru import logger
+
 from app.database.sqlite import Paper
 from app.llm import ChatMessage, LLMConfig, LLMProvider
 
@@ -165,6 +167,7 @@ async def generate_ideas(
             generated_text += token
             yield {"type": "chunk", "content": token}
     except Exception as exc:
+        logger.warning("idea_agent.py operation failed: {}", exc)
         yield {"type": "error", "message": str(exc)}
         generated_text = _fallback_ideas(mode, papers, domain_a=domain_a, domain_b=domain_b)
         yield {"type": "chunk", "content": generated_text}
@@ -183,7 +186,8 @@ async def generate_ideas(
             if stripped.startswith("```"):
                 stripped = stripped.strip("`").removeprefix("json").strip()
             ideas_list = json.loads(stripped) if stripped else []
-    except Exception:
+    except Exception as exc:
+        logger.warning("idea_agent.py operation failed: {}", exc)
         ideas_list = []
 
     if ideas_list:
@@ -204,7 +208,8 @@ async def generate_ideas(
             evaluations = json.loads(stripped) if stripped else []
             for ev in evaluations:
                 yield {"type": "evaluation", "evaluation": ev}
-        except Exception:
+        except Exception as exc:
+            logger.warning("idea_agent.py operation failed: {}", exc)
             yield {"type": "status", "message": "Idea evaluation failed — manual review advised."}
     else:
         yield {"type": "status", "message": "Could not parse generated ideas for evaluation. Scores were not in the generation (by design)."}
@@ -260,6 +265,7 @@ Relevant papers:
             "report": parsed.get("report", raw),
         }
     except Exception as exc:
+        logger.warning("idea_agent.py operation failed: {}", exc)
         return {
             "idea": idea,
             "novelty": 3,

@@ -2,6 +2,7 @@
 
 import time
 from typing import AsyncIterator
+from loguru import logger
 from openai import AsyncOpenAI
 
 from app.llm import LLMProvider, LLMConfig, ChatMessage
@@ -54,4 +55,5 @@ class OllamaProvider(LLMProvider):
             latency_ms = int((time.time() - start) * 1000)
             return {"success": True, "latency_ms": latency_ms, "model": config.model or self.DEFAULT_MODEL}
         except Exception as e:
+            logger.error("LLM connection test failed: {}", e)
             return {"success": False, "error": str(e), "latency_ms": int((time.time() - start) * 1000)}

@@ -7,6 +7,8 @@ from typing import AsyncGenerator
 
 from sqlalchemy.orm import Session
 
+from loguru import logger
+
 from app.database.sqlite import WritingProject
 from app.llm import ChatMessage, LLMConfig, LLMProvider
 
@@ -198,7 +200,8 @@ async def generate_reviewer_personas(
                 "known_for": base.get("known_for", enriched_desc),
             }
         return result
-    except Exception:
+    except Exception as exc:
+        logger.warning("review_agent.py operation failed: {}", exc)
         return None
 
 
@@ -309,7 +312,8 @@ async def _generate_reviewer_phase1(
         if not plan or not isinstance(plan, list):
             return None
         return {"scoring_plan": plan}
-    except Exception:
+    except Exception as exc:
+        logger.warning("review_agent.py operation failed: {}", exc)
         return None
 
 
@@ -409,7 +413,8 @@ confidence: integer 1-5
             "overall_score": max(1, min(10, int(parsed.get("overall_score", 5)))),
             "confidence": max(1, min(5, int(parsed.get("confidence", 3)))),
         }
-    except Exception:
+    except Exception as exc:
+        logger.warning("review_agent.py operation failed: {}", exc)
         return _fallback_review(index, role_key, venue, project)
 
 
@@ -446,7 +451,8 @@ action_items: array of strings
             "summary": str(parsed.get("summary", fallback["summary"])),
             "action_items": list(parsed.get("action_items", fallback["action_items"]))[:8],
         }
-    except Exception:
+    except Exception as exc:
+        logger.warning("review_agent.py operation failed: {}", exc)
         return fallback
 
 
@@ -551,7 +557,8 @@ Return only the letter text.
             ChatMessage(role="system", content="You write professional academic cover letters."),
             ChatMessage(role="user", content=prompt),
         ], config)
-    except Exception:
+    except Exception as exc:
+        logger.warning("review_agent.py operation failed: {}", exc)
         return fallback
 
 
@@ -601,7 +608,8 @@ Return only the rebuttal letter.
             ChatMessage(role="system", content="You write precise academic rebuttal letters."),
             ChatMessage(role="user", content=prompt),
         ], config)
-    except Exception:
+    except Exception as exc:
+        logger.warning("review_agent.py operation failed: {}", exc)
         return fallback
 
 
@@ -669,7 +677,8 @@ async def score_rebuttal(
         if isinstance(parsed, list):
             return parsed
         return []
-    except Exception:
+    except Exception as exc:
+        logger.warning("review_agent.py operation failed: {}", exc)
         return []
 
 
@@ -727,6 +736,6 @@ Text to check:
             "flags": parsed.get("flags", []),
             "overall_rating": parsed.get("overall_rating", "good"),
         }
-    except Exception:
+    except Exception as exc:
+        logger.warning("review_agent.py operation failed: {}", exc)
         return {"flags": [], "overall_rating": "good", "message": "Quality check failed — text may still have issues."}
-

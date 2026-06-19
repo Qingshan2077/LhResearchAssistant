@@ -4,6 +4,8 @@ from typing import AsyncGenerator
 
 from sqlalchemy.orm import Session
 
+from loguru import logger
+
 from app.database.chroma_client import collection
 from app.database.sqlite import Paper
 from app.llm import ChatMessage, LLMConfig, LLMProvider
@@ -30,7 +32,8 @@ def _retrieve_chunks(section_name: str, paper_ids: list[str], top_k: int = 8) ->
         results = collection.query(query_texts=[section_name], n_results=max(top_k * 3, top_k))
         docs = results.get("documents", [[]])[0] or []
         metas = results.get("metadatas", [[]])[0] or []
-    except Exception:
+    except Exception as exc:
+        logger.warning("write_agent.py operation failed: {}", exc)
         return []
 
     chunks = []
@@ -117,6 +120,7 @@ Retrieved chunks:
         ], config):
             yield {"type": "chunk", "content": token}
     except Exception as exc:
+        logger.warning("write_agent.py operation failed: {}", exc)
         yield {"type": "error", "message": str(exc)}
 
     yield {"type": "done"}
@@ -155,7 +159,8 @@ Language: {"Chinese" if language == "zh" else "English"}.
         parsed = json.loads(raw)
         if isinstance(parsed, list):
             return parsed
-    except Exception:
+    except Exception as exc:
+        logger.warning("write_agent.py operation failed: {}", exc)
         pass
     return _fallback_outline(language)
 
@@ -187,7 +192,8 @@ Text:
             ChatMessage(role="system", content="You polish academic writing without changing meaning."),
             ChatMessage(role="user", content=prompt),
         ], config)
-    except Exception:
+    except Exception as exc:
+        logger.warning("write_agent.py operation failed: {}", exc)
         return text
 
 

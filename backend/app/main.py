@@ -1,31 +1,30 @@
-"""Research Assistant Backend — FastAPI 入口"""
+"""Research Assistant Backend — FastAPI entry point."""
 
 import argparse
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 
 from app.config import settings
-from app.database import engine, Base
-from app.database.sqlite import ensure_runtime_schema
+from app.logs import setup_logging
+from app.version import __version__
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时建表，关闭时清理"""
-    Base.metadata.create_all(bind=engine)
-    ensure_runtime_schema(engine)
+    """Initialize process-wide services."""
+    setup_logging()
     yield
 
 
 app = FastAPI(
     title="Research Assistant API",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
-# CORS — 允许 Tauri WebView 和 Vite Dev Server 访问
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins.split(","),
@@ -34,9 +33,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── 路由注册 ──────────────────────────────────────────
-# 每个路由模块注册时自动挂载
-from app.routers import health, search, papers, knowledge, settings as settings_router, streaming, ideas, writing, review, verification, socratic  # noqa: E402
+from app.routers import (  # noqa: E402
+    health,
+    ideas,
+    knowledge,
+    papers,
+    review,
+    search,
+    settings as settings_router,
+    socratic,
+    streaming,
+    verification,
+    writing,
+)
 
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(search.router, prefix="/api/v1", tags=["search"])
@@ -56,13 +65,10 @@ if __name__ == "__main__":
     parser.add_argument("--host", default=settings.host)
     parser.add_argument("--port", type=int, default=settings.port)
     args = parser.parse_args()
-
     uvicorn.run(
         app,
         host=args.host,
         port=args.port,
-        # The packaged Tauri sidecar must stay a single process. Development
-        # reload is enabled by the external `uvicorn ... --reload` command.
         reload=False,
         log_level=settings.log_level,
     )

@@ -56,7 +56,7 @@ def _paper_to_response(paper: Paper, is_new: bool = False) -> dict:
         "citation_data": paper.citation_data or "",
         "citation_cached_at": paper.citation_cached_at,
         "tags": paper.tags or [],
-        "notes": paper.notes or "",
+        "notes": paper.decrypted_notes,
         "read_status": paper.read_status or "unread",
         "rating": paper.rating or 0,
         "is_new": is_new,

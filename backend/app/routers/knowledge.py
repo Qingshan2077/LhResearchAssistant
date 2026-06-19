@@ -3,6 +3,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from loguru import logger
+
 from app.database import get_db
 from app.database.chroma_client import collection
 from app.database.sqlite import Paper, MindMapNode, PaperRelation
@@ -35,7 +37,8 @@ async def knowledge_query(req: KnowledgeQuery, db: Session = Depends(get_db)):
                 .filter(Paper.project_id == req.project_id, Paper.id.in_(paper_ids))
                 .all()
             )
-    except Exception:
+    except Exception as exc:
+        logger.warning("knowledge.py operation failed: {}", exc)
         papers = []
 
     if not papers:
@@ -68,7 +71,8 @@ async def knowledge_query(req: KnowledgeQuery, db: Session = Depends(get_db)):
                 ChatMessage(role="system", content="Answer using only the retrieved paper context. Cite source paper titles when possible."),
                 ChatMessage(role="user", content=f"Question: {req.query}\n\nRetrieved context:\n{context}"),
             ], config)
-        except Exception:
+        except Exception as exc:
+            logger.warning("knowledge.py operation failed: {}", exc)
             pass
 
     return {

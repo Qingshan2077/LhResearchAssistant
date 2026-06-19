@@ -1,0 +1,7 @@
+Alembic migration environment for the Research Assistant backend.
+
+Create a revision after changing models:
+    uv run alembic revision --autogenerate -m "describe change"
+
+Apply migrations:
+    uv run alembic upgrade head

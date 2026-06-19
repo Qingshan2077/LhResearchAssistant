@@ -1,32 +1,59 @@
-"""Settings routes for providers, usage, data management and system info."""
+"""Settings routes for providers, usage, data management, and system info."""
 
 import os
 import platform
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings as app_settings
-from app.database import get_db
+from app.database import engine, get_db
 from app.database.chroma_client import collection
 from app.database.sqlite import (
     LLMProvider as LLMProviderModel,
     LLMUsage,
+    MindMapNode,
     Paper,
+    PaperRelation,
+    Project,
+    SearchHistory,
     WritingProject,
 )
 from app.llm.router import DEFAULT_BASE_URLS, DEFAULT_MODELS, get_provider_by_id
 from app.models import ProviderCreate, ProviderResponse, ProviderUpdate, ThemeUpdate
+from app.services.crypto import decrypt_api_key, encrypt_api_key
+from app.version import __version__
 
 router = APIRouter()
 
 
 class ProviderTestRequest(BaseModel):
     provider_id: str | None = None
+
+
+def _provider_to_response(provider: LLMProviderModel) -> dict:
+    """Expose a decrypted key to the local settings UI, never the stored ciphertext."""
+    return {
+        "id": provider.id,
+        "name": provider.name,
+        "display_name": provider.display_name or "",
+        "api_key": decrypt_api_key(provider.api_key or ""),
+        "base_url": provider.base_url or "",
+        "default_model": provider.default_model or "",
+        "is_active": bool(provider.is_active),
+        "priority": provider.priority or 0,
+        "max_tokens": provider.max_tokens or 8192,
+        "temperature": provider.temperature if provider.temperature is not None else 0.7,
+        "last_test_at": provider.last_test_at,
+        "last_test_success": provider.last_test_success,
+        "last_test_latency": provider.last_test_latency or 0,
+    }
 
 
 def _dir_size(path: str) -> int:
@@ -38,9 +65,23 @@ def _dir_size(path: str) -> int:
         if item.is_file():
             try:
                 total += item.stat().st_size
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.warning("Could not inspect file {}: {}", item, exc)
     return total
+
+
+def _clear_directory(path: str) -> None:
+    root = Path(path)
+    if not root.exists():
+        return
+    for child in root.iterdir():
+        try:
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+        except OSError as exc:
+            logger.warning("Could not remove cached path {}: {}", child, exc)
 
 
 def _mb(size_bytes: int) -> float:
@@ -61,7 +102,7 @@ def _set_only_active(db: Session, provider_id: str) -> None:
 @router.get("/settings/providers", response_model=list[ProviderResponse])
 def list_providers(db: Session = Depends(get_db)):
     providers = db.query(LLMProviderModel).order_by(LLMProviderModel.priority.desc()).all()
-    return providers
+    return [_provider_to_response(provider) for provider in providers]
 
 
 @router.post("/settings/providers", response_model=ProviderResponse)
@@ -69,7 +110,7 @@ def create_provider(req: ProviderCreate, db: Session = Depends(get_db)):
     provider = LLMProviderModel(
         name=req.name,
         display_name=req.display_name or req.name,
-        api_key=req.api_key,
+        api_key=encrypt_api_key(req.api_key),
         base_url=req.base_url or DEFAULT_BASE_URLS.get(req.name, ""),
         default_model=req.default_model or DEFAULT_MODELS.get(req.name, ""),
         is_active=req.is_active,
@@ -83,7 +124,8 @@ def create_provider(req: ProviderCreate, db: Session = Depends(get_db)):
         _set_only_active(db, provider.id)
     db.commit()
     db.refresh(provider)
-    return provider
+    logger.info("Created LLM provider {}", provider.id)
+    return _provider_to_response(provider)
 
 
 @router.patch("/settings/providers/{provider_id}", response_model=ProviderResponse)
@@ -92,16 +134,18 @@ def update_provider(provider_id: str, req: ProviderUpdate, db: Session = Depends
     if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
 
-    patch = req.model_dump(exclude_unset=True)
-    if patch.get("is_active") is True:
+    patch_data = req.model_dump(exclude_unset=True)
+    if patch_data.get("is_active") is True:
         _set_only_active(db, provider_id)
-
-    for field, value in patch.items():
+    if "api_key" in patch_data:
+        patch_data["api_key"] = encrypt_api_key(patch_data["api_key"] or "")
+    for field, value in patch_data.items():
         setattr(provider, field, value)
 
     db.commit()
     db.refresh(provider)
-    return provider
+    logger.info("Updated LLM provider {}", provider_id)
+    return _provider_to_response(provider)
 
 
 @router.delete("/settings/providers/{provider_id}")
@@ -111,6 +155,7 @@ def delete_provider(provider_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Provider not found")
     db.delete(provider)
     db.commit()
+    logger.info("Deleted LLM provider {}", provider_id)
     return {"deleted": True}
 
 
@@ -128,6 +173,7 @@ async def test_provider(req: ProviderTestRequest, db: Session = Depends(get_db))
         record = None
         from app.llm import LLMConfig
         from app.llm.deepseek import DeepSeekProvider
+
         provider_impl = DeepSeekProvider()
         config = LLMConfig()
 
@@ -147,7 +193,6 @@ def usage_summary(days: int = 7, db: Session = Depends(get_db)):
     week_start = now - timedelta(days=7)
     month_start = now - timedelta(days=30)
     window_start = _since(days)
-
     calls_today = db.query(LLMUsage).filter(LLMUsage.timestamp >= day_start).count()
     calls_week = db.query(LLMUsage).filter(LLMUsage.timestamp >= week_start).count()
     calls_month = db.query(LLMUsage).filter(LLMUsage.timestamp >= month_start).count()
@@ -215,7 +260,10 @@ def usage_by_function(days: int = 7, db: Session = Depends(get_db)):
             "function_name": function_name or "chat",
             "calls": calls,
             "tokens_total": int(tokens_in or 0) + int(tokens_out or 0),
-            "percentage": round(((int(tokens_in or 0) + int(tokens_out or 0)) / total) * 100, 1),
+            "percentage": round(
+                ((int(tokens_in or 0) + int(tokens_out or 0)) / total) * 100,
+                1,
+            ),
         }
         for function_name, calls, tokens_in, tokens_out in rows
     ]
@@ -223,7 +271,12 @@ def usage_by_function(days: int = 7, db: Session = Depends(get_db)):
 
 @router.get("/settings/usage/recent")
 def usage_recent(limit: int = 20, db: Session = Depends(get_db)):
-    rows = db.query(LLMUsage).order_by(LLMUsage.timestamp.desc()).limit(max(1, min(limit, 100))).all()
+    rows = (
+        db.query(LLMUsage)
+        .order_by(LLMUsage.timestamp.desc())
+        .limit(max(1, min(limit, 100)))
+        .all()
+    )
     return [
         {
             "id": row.id,
@@ -244,9 +297,11 @@ def usage_recent(limit: int = 20, db: Session = Depends(get_db)):
 def data_stats(db: Session = Depends(get_db)):
     try:
         chroma_count = collection.count()
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not read Chroma collection size: {}", exc)
         chroma_count = 0
-    db_size = Path(app_settings.db_path).stat().st_size if Path(app_settings.db_path).exists() else 0
+    db_path = Path(app_settings.db_path)
+    db_size = db_path.stat().st_size if db_path.exists() else 0
     return {
         "paper_count": db.query(Paper).count(),
         "chroma_count": chroma_count,
@@ -264,15 +319,60 @@ def clear_vector_cache():
         ids = collection.get().get("ids", [])
         if ids:
             collection.delete(ids=ids)
+        logger.info("Cleared {} vector records", len(ids))
         return {"cleared": True, "count": len(ids)}
     except Exception as exc:
+        logger.exception("Could not clear vector cache")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/settings/data/clear-all-data")
+def clear_all_data(db: Session = Depends(get_db)):
+    """Securely remove user research data while preserving provider settings."""
+    try:
+        for model in (
+            MindMapNode,
+            PaperRelation,
+            SearchHistory,
+            WritingProject,
+            LLMUsage,
+            Paper,
+            Project,
+        ):
+            db.query(model).delete(synchronize_session=False)
+        db.commit()
+
+        try:
+            ids = collection.get().get("ids", [])
+            if ids:
+                collection.delete(ids=ids)
+        except Exception as exc:
+            logger.warning("Database cleared but Chroma cleanup failed: {}", exc)
+
+        _clear_directory(app_settings.papers_cache_dir)
+        _clear_directory(app_settings.writing_projects_dir)
+
+        raw_connection = engine.raw_connection()
+        try:
+            cursor = raw_connection.cursor()
+            try:
+                cursor.execute("VACUUM")
+            finally:
+                cursor.close()
+        finally:
+            raw_connection.close()
+        logger.warning("All research data was securely cleared")
+        return {"status": "ok", "message": "All user data cleared."}
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Secure data clearing failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/settings/system-info")
 def system_info():
     return {
-        "backend_version": "0.1.0",
+        "backend_version": __version__,
         "python_version": platform.python_version(),
         "db_path": app_settings.db_path,
         "cache_path": app_settings.papers_cache_dir,

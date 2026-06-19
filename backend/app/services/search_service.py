@@ -2,6 +2,7 @@
 
 import asyncio
 import httpx
+from loguru import logger
 from app.services.paper_sources import PaperSourceResult
 from app.services.paper_sources.arxiv import ArxivSource
 from app.services.paper_sources.semanticscholar import SemanticScholarSource
@@ -78,14 +79,19 @@ async def search_papers(
                 _fill_pdf_url(result)
             return name, results, None
         except asyncio.TimeoutError:
+            logger.warning("Search source {} timed out", name)
             return name, [], "Source timed out after 45 seconds."
         except httpx.ConnectError:
+            logger.warning("Search source {} is unreachable", name)
             return name, [], "Connection failed: network unreachable."
         except httpx.TimeoutException:
+            logger.warning("Search source {} request timed out", name)
             return name, [], "Request timed out."
         except httpx.HTTPStatusError as exc:
+            logger.warning("Search source {} returned HTTP {}", name, exc.response.status_code)
             return name, [], f"HTTP {exc.response.status_code} from source."
         except Exception as exc:
+            logger.exception("Search source {} failed", name)
             return name, [], f"Search failed: {str(exc)[:80]}"
 
     tasks = [_search_one(name) for name in sources]

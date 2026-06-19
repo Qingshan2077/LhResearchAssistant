@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
+from loguru import logger
 
 
 SEMANTIC_SCHOLAR_BASE = "https://api.semanticscholar.org/graph/v1"
@@ -90,11 +91,13 @@ async def get_citation_graph(paper_id: str) -> dict[str, Any]:
             await asyncio.sleep(1)
             citation_raw = await _get_relation_page(client, canonical_id, "citations", "citingPaper")
     except httpx.HTTPStatusError as exc:
+        logger.warning("Semantic Scholar graph request returned HTTP {}", exc.response.status_code)
         status_code = exc.response.status_code
         if status_code == 429:
             return {"error": "Semantic Scholar rate limit reached. Please retry later."}
         return {"error": f"Semantic Scholar returned HTTP {status_code}."}
     except httpx.RequestError as exc:
+        logger.warning("Semantic Scholar graph request failed: {}", exc)
         return {"error": f"Cannot reach Semantic Scholar: {exc}"}
 
     seed = _paper_item(seed_raw, "seed", True)

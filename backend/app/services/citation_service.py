@@ -6,6 +6,8 @@ from urllib.parse import quote
 import httpx
 from sqlalchemy.orm import Session
 
+from loguru import logger
+
 from app.database.sqlite import Paper
 
 
@@ -99,6 +101,7 @@ def verify_citations(bibtex_entries: list[str]) -> list[dict]:
                     "message": "CrossRef record found." if resp.status_code == 200 else "CrossRef did not find this DOI.",
                 })
             except Exception as exc:
+                logger.warning("citation_service.py operation failed: {}", exc)
                 reports.append({
                     "index": index,
                     "doi": doi_value,

@@ -1,16 +1,31 @@
-"""数据库初始化 — SQLAlchemy Engine + Session"""
+"""SQLAlchemy engine and session configuration."""
 
 from pathlib import Path
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
 
 engine = create_engine(
     f"sqlite:///{Path(settings.db_path).absolute()}",
-    connect_args={"check_same_thread": False},  # SQLite 需要
+    connect_args={"check_same_thread": False},
     echo=False,
 )
+
+
+@event.listens_for(engine, "connect")
+def set_sqlite_pragmas(dbapi_connection, connection_record) -> None:
+    """Enable integrity, concurrency, and secure deletion for every connection."""
+    del connection_record
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA secure_delete=ON")
+    finally:
+        cursor.close()
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -20,7 +35,7 @@ class Base(DeclarativeBase):
 
 
 def get_db():
-    """FastAPI 依赖：获取数据库会话"""
+    """FastAPI dependency that supplies one database session."""
     db = SessionLocal()
     try:
         yield db

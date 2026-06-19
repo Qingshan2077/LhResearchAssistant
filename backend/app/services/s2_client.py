@@ -119,5 +119,6 @@ async def batch_search(titles: list[str]) -> dict[str, dict]:
             result = await search_paper_by_title(title)
             results[title] = result or {"status": "not_found", "match": None, "candidates": []}
         except Exception as exc:
+            logger.warning("s2_client.py operation failed: {}", exc)
             results[title] = {"status": "error", "message": str(exc), "match": None, "candidates": []}
     return results

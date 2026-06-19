@@ -4,11 +4,12 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
     Column, String, Text, Integer, Float, Boolean,
-    DateTime, JSON, ForeignKey, inspect, text,
+    DateTime, JSON, ForeignKey,
 )
 from sqlalchemy.orm import relationship
 
 from app.database import Base
+from app.services.crypto import decrypt_secret, encrypt_secret
 
 
 def _uuid():
@@ -63,7 +64,16 @@ class Paper(Base):
     citation_data = Column(Text, default="")           # Cached citation graph JSON
     citation_cached_at = Column(DateTime, nullable=True)
     tags = Column(JSON, default=list)                  # 用户标签
-    notes = Column(Text, default="")                   # 用户笔记
+    notes = Column(Text, default="")                   # encrypted user notes
+
+    @property
+    def decrypted_notes(self) -> str:
+        """Return notes while remaining compatible with legacy plaintext rows."""
+        return decrypt_secret(self.notes or "")
+
+    def set_encrypted_notes(self, plaintext: str) -> None:
+        self.notes = encrypt_secret(plaintext)
+
     read_status = Column(String(16), default="unread") # unread / reading / read
     rating = Column(Integer, default=0)                # 用户评分 1-5
 
@@ -197,30 +207,3 @@ class SearchHistory(Base):
     filters = Column(JSON, default=dict)
     result_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=_utcnow)
-
-
-def ensure_runtime_schema(engine) -> None:
-    """Apply small SQLite-compatible column additions when no migration tool is present."""
-    inspector = inspect(engine)
-    if "papers" not in inspector.get_table_names():
-        return
-
-    paper_columns = {column["name"] for column in inspector.get_columns("papers")}
-    with engine.begin() as connection:
-        if "citation_verified" not in paper_columns:
-            connection.execute(text("ALTER TABLE papers ADD COLUMN citation_verified JSON DEFAULT '[]'"))
-        if "pdf_download_error" not in paper_columns:
-            connection.execute(text("ALTER TABLE papers ADD COLUMN pdf_download_error TEXT DEFAULT ''"))
-        if "citation_data" not in paper_columns:
-            connection.execute(text("ALTER TABLE papers ADD COLUMN citation_data TEXT DEFAULT ''"))
-        if "citation_cached_at" not in paper_columns:
-            connection.execute(text("ALTER TABLE papers ADD COLUMN citation_cached_at DATETIME"))
-
-    provider_columns = {column["name"] for column in inspector.get_columns("llm_providers")}
-    with engine.begin() as connection:
-        if "last_test_at" not in provider_columns:
-            connection.execute(text("ALTER TABLE llm_providers ADD COLUMN last_test_at DATETIME"))
-        if "last_test_success" not in provider_columns:
-            connection.execute(text("ALTER TABLE llm_providers ADD COLUMN last_test_success BOOLEAN"))
-        if "last_test_latency" not in provider_columns:
-            connection.execute(text("ALTER TABLE llm_providers ADD COLUMN last_test_latency INTEGER DEFAULT 0"))

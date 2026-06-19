@@ -2,6 +2,7 @@
 
 import time
 from typing import AsyncIterator
+from loguru import logger
 from openai import AsyncOpenAI
 
 from app.llm import LLMProvider, LLMConfig, ChatMessage
@@ -58,6 +59,7 @@ class DeepSeekProvider(LLMProvider):
                 "model": config.model or self.DEFAULT_MODEL,
             }
         except Exception as e:
+            logger.error("LLM connection test failed: {}", e)
             return {
                 "success": False,
                 "error": str(e),

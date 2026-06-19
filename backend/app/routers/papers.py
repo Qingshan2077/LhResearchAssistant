@@ -10,6 +10,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
+from loguru import logger
+
 from app.database import SessionLocal, get_db
 from app.database.chroma_client import collection
 from app.database.sqlite import Paper, Project
@@ -70,7 +72,7 @@ def _paper_to_response(paper: Paper, is_new: bool = False) -> dict:
         "citation_data": paper.citation_data or "",
         "citation_cached_at": paper.citation_cached_at.isoformat() if paper.citation_cached_at else None,
         "tags": paper.tags or [],
-        "notes": paper.notes or "",
+        "notes": paper.decrypted_notes,
         "read_status": paper.read_status or "unread",
         "rating": paper.rating or 0,
         "is_new": is_new,
@@ -157,7 +159,8 @@ async def _ask_papers_stream(req: AskPapersRequest) -> AsyncIterator[dict]:
                     chunks.append(f"[{meta.get('paper_id')}] {doc}")
                     if len(chunks) >= top_k:
                         break
-        except Exception:
+        except Exception as exc:
+            logger.warning("papers.py operation failed: {}", exc)
             yield _as_sse({"type": "status", "message": "Vector search unavailable; using abstracts only."})
 
         yield _as_sse({"type": "status", "message": f"Retrieved {len(chunks)} relevant passages."})
@@ -204,6 +207,7 @@ Instructions:
             ):
                 yield _as_sse({"type": "chunk", "content": token})
         except Exception as exc:
+            logger.warning("papers.py operation failed: {}", exc)
             yield _as_sse({"type": "error", "message": str(exc)})
         yield _as_sse({"type": "done"})
     finally:
@@ -237,7 +241,7 @@ def _merge_local_graph_data(graph: dict, local_papers: list[Paper]) -> dict:
             continue
         node["local_id"] = match.id
         node["tags"] = match.tags or []
-        node["notes"] = match.notes or ""
+        node["notes"] = match.decrypted_notes
         node["read_status"] = match.read_status or "unread"
     return graph
 
@@ -363,6 +367,7 @@ async def get_citation_graph_endpoint(paper_id: str, db: Session = Depends(get_d
     try:
         graph = await fetch_citation_graph(s2_id)
     except Exception as exc:
+        logger.warning("papers.py operation failed: {}", exc)
         return {"error": f"Semantic Scholar request failed: {exc}"}
 
     if graph.get("error"):
@@ -489,7 +494,7 @@ def update_paper(paper_id: str, req: PaperUpdate, db: Session = Depends(get_db))
     if req.tags is not None:
         paper.tags = req.tags
     if req.notes is not None:
-        paper.notes = req.notes
+        paper.set_encrypted_notes(req.notes)
     if req.read_status is not None:
         paper.read_status = req.read_status
     if req.rating is not None:
@@ -535,7 +540,8 @@ async def upload_paper(
         meta = PDFParser.extract_metadata(str(saved_path))
         title = meta.get("title") or file.filename or "Untitled"
         author = meta.get("author") or ""
-    except Exception:
+    except Exception as exc:
+        logger.warning("papers.py operation failed: {}", exc)
         title = file.filename or "Untitled"
         author = ""
 

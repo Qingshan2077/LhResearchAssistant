@@ -3,6 +3,8 @@
 from typing import AsyncGenerator
 from sqlalchemy.orm import Session
 
+from loguru import logger
+
 from app.database.sqlite import Paper
 from app.llm.router import get_active_provider
 from app.llm import ChatMessage
@@ -111,6 +113,7 @@ async def generate_review(
         async for chunk in provider.chat_stream(messages, config):
             yield {"type": "chunk", "content": chunk}
     except Exception as e:
+        logger.warning("paper_agent.py operation failed: {}", e)
         yield {"type": "error", "message": str(e)}
         return
 
@@ -143,5 +146,6 @@ async def expand_query(query: str, db: Session | None = None) -> str:
 
     try:
         return await provider.chat(messages, config)
-    except Exception:
+    except Exception as exc:
+        logger.warning("paper_agent.py operation failed: {}", exc)
         return query

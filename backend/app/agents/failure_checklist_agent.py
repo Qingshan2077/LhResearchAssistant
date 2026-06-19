@@ -3,6 +3,8 @@
 import json
 import re
 
+from loguru import logger
+
 from app.llm import ChatMessage, LLMConfig, LLMProvider
 
 
@@ -135,5 +137,6 @@ Text:
             "blocking": blocking,
             "summary": parsed.get("summary", fallback["summary"]),
         }
-    except Exception:
+    except Exception as exc:
+        logger.warning("failure_checklist_agent.py operation failed: {}", exc)
         return fallback

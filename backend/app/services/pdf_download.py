@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 
 import httpx
+from loguru import logger
 from pydantic import BaseModel
 
 from app.config import settings
@@ -45,12 +46,16 @@ async def download_pdf(pdf_url: str, title: str = "") -> PdfDownloadResult:
             return PdfDownloadResult(success=True, local_path=str(cache_path))
 
     except httpx.ConnectError:
+        logger.warning("PDF source is unreachable: {}", pdf_url)
         return PdfDownloadResult(success=False, error="PDF source is unreachable.")
     except httpx.TimeoutException:
+        logger.warning("PDF download timed out: {}", pdf_url)
         return PdfDownloadResult(success=False, error="PDF download timed out.")
     except httpx.HTTPStatusError as exc:
+        logger.warning("PDF download returned HTTP {}: {}", exc.response.status_code, pdf_url)
         return PdfDownloadResult(success=False, error=f"PDF source returned HTTP {exc.response.status_code}.")
     except Exception as exc:
+        logger.exception("Unexpected PDF download failure: {}", pdf_url)
         return PdfDownloadResult(success=False, error=str(exc)[:120])
 
 

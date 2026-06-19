@@ -6,6 +6,8 @@ from typing import AsyncIterator
 
 from sqlalchemy.orm import Session
 
+from loguru import logger
+
 from app.database import SessionLocal
 from app.database.sqlite import LLMUsage
 from app.llm import ChatMessage, LLMConfig, LLMProvider
@@ -63,7 +65,8 @@ def _record_usage(
             error_msg=error_msg[:512],
         ))
         db.commit()
-    except Exception:
+    except Exception as exc:
+        logger.warning("usage_tracker.py operation failed: {}", exc)
         db.rollback()
     finally:
         db.close()
@@ -102,6 +105,7 @@ class UsageTrackingProvider(LLMProvider):
             )
             return result
         except Exception as exc:
+            logger.warning("usage_tracker.py operation failed: {}", exc)
             duration_ms = int((time.perf_counter() - start) * 1000)
             _record_usage(
                 config,
@@ -136,6 +140,7 @@ class UsageTrackingProvider(LLMProvider):
                 provider_name=self._provider_name,
             )
         except Exception as exc:
+            logger.warning("usage_tracker.py operation failed: {}", exc)
             duration_ms = int((time.perf_counter() - start) * 1000)
             _record_usage(
                 config,

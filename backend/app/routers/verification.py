@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
+from loguru import logger
+
 from app.database import get_db, SessionLocal
 from app.database.sqlite import Paper
 from app.models import CitationVerificationStatus
@@ -27,13 +29,14 @@ def _extract_text_for_citations(paper: Paper) -> str:
     chunks = [
         paper.title or "",
         paper.abstract or "",
-        paper.notes or "",
+        paper.decrypted_notes,
         json.dumps(extracted, ensure_ascii=False),
     ]
     if paper.pdf_path and Path(paper.pdf_path).exists():
         try:
             chunks.append(PDFParser.extract_text_fast(paper.pdf_path))
-        except Exception:
+        except Exception as exc:
+            logger.warning("verification.py operation failed: {}", exc)
             pass
     return "\n".join(chunks)
 
@@ -114,6 +117,7 @@ async def _verify_stream(paper_id: str) -> AsyncIterator[dict]:
                         "candidates": (s2_result or {}).get("candidates", []),
                     }
                 except Exception as exc:
+                    logger.warning("verification.py operation failed: {}", exc)
                     result = {"citation": citation, "status": "error", "message": str(exc), "match": None, "candidates": []}
             results.append(result)
             yield _as_sse({

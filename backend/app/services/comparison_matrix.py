@@ -4,6 +4,8 @@ import json
 import re
 from typing import Any
 
+from loguru import logger
+
 from app.llm import ChatMessage, LLMConfig, LLMProvider
 
 
@@ -112,5 +114,6 @@ async def generate_comparison_table(
             "table": table,
             "notes": str(parsed.get("notes") or ""),
         }
-    except Exception:
+    except Exception as exc:
+        logger.warning("comparison_matrix.py operation failed: {}", exc)
         return fallback

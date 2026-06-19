@@ -1,6 +1,8 @@
-"""Health check 路由"""
+"""Health check route."""
 
 from fastapi import APIRouter
+
+from app.version import __version__
 
 router = APIRouter()
 
@@ -9,7 +11,7 @@ router = APIRouter()
 async def health_check():
     return {
         "status": "ok",
-        "version": "0.1.0",
-        "chroma_connected": False,   # Phase 1 占位
+        "version": __version__,
+        "chroma_connected": False,
         "db_connected": True,
     }

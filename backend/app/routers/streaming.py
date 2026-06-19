@@ -1,6 +1,7 @@
 """WebSocket 流式通信路由"""
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from loguru import logger
 
 from app.database import SessionLocal
 from app.llm.router import get_active_provider
@@ -54,6 +55,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         })
                     await websocket.send_json({"type": "done"})
                 except Exception as e:
+                    logger.warning("WebSocket chat failed: {}", e)
                     await websocket.send_json({
                         "type": "error",
                         "message": str(e),

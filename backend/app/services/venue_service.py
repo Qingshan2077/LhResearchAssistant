@@ -4,6 +4,8 @@ import json
 import re
 from collections import Counter
 
+from loguru import logger
+
 from app.llm import ChatMessage, LLMConfig, LLMProvider
 
 
@@ -348,7 +350,8 @@ Return JSON only. Use this schema:
             seen = {item["name"] for item in recommendations}
             recommendations.extend([item for item in fallback if item["name"] not in seen])
             return recommendations[:5]
-    except Exception:
+    except Exception as exc:
+        logger.warning("venue_service.py operation failed: {}", exc)
         pass
 
     if method_keywords:
