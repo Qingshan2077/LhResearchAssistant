@@ -1,7 +1,7 @@
 """LLM Provider 抽象层"""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import AsyncIterator
 
 

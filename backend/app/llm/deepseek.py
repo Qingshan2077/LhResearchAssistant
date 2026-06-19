@@ -46,7 +46,7 @@ class DeepSeekProvider(LLMProvider):
         start = time.time()
         try:
             client = await self._client(config)
-            resp = await client.chat.completions.create(
+            await client.chat.completions.create(
                 model=config.model or self.DEFAULT_MODEL,
                 messages=[{"role": "user", "content": "Respond with only: OK"}],
                 max_tokens=10,

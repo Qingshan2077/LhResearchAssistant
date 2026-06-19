@@ -480,7 +480,6 @@ async def _llm_generate_response(
         for m in session.messages[-8:]
     )
 
-    insight_summary = session.insights[-5:] if session.insights else []
     active_conv = [k for k, v in session.convergence.items() if v]
 
     prompt = f"""Current layer: {session.layer}/5 — {LAYER_NAMES[session.layer]}
