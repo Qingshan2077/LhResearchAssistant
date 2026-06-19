@@ -1,7 +1,6 @@
 """PDF 解析 — 双引擎：PyMuPDF（快速）+ marker-pdf（高精度）"""
 
 import fitz  # PyMuPDF
-from pathlib import Path
 
 
 class PDFParser:

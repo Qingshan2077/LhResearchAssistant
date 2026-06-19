@@ -1,7 +1,6 @@
 """DBLP API 数据源 — CS 领域专属"""
 
 import httpx
-import xml.etree.ElementTree as ET
 
 from app.services.paper_sources import PaperSource, PaperSourceResult
 

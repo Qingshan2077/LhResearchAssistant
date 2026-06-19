@@ -2,7 +2,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sse_starlette.sse import EventSourceResponse
 
 from app.database import get_db
 from app.database.chroma_client import collection
@@ -184,7 +183,7 @@ def get_mindmap(paper_id: str, db: Session = Depends(get_db)):
 
     # 根节点：论文标题
     nodes.append({
-        "id": f"auto-root",
+        "id": "auto-root",
         "paper_id": paper_id,
         "parent_id": None,
         "label": paper.title[:80],

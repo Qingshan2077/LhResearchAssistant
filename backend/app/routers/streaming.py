@@ -1,11 +1,10 @@
 """WebSocket 流式通信路由"""
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.llm.router import get_active_provider
-from app.llm import LLMConfig, ChatMessage
+from app.llm import ChatMessage
 
 router = APIRouter()
 

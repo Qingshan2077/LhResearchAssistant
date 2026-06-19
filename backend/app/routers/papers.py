@@ -1,7 +1,6 @@
 """论文管理路由 — CRUD + 上传 + 解析"""
 
 import json
-import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,7 +8,6 @@ from typing import AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
 from sse_starlette.sse import EventSourceResponse
 
 from app.database import SessionLocal, get_db
@@ -18,7 +16,7 @@ from app.database.sqlite import Paper, Project
 from app.llm import ChatMessage, LLMConfig
 from app.llm.router import get_active_provider
 from app.models import (
-    AskPapersRequest, ComparisonRequest, PaperCreate, PaperUpdate, PaperResponse, PaperListResponse,
+    AskPapersRequest, ComparisonRequest, PaperCreate, PaperUpdate, PaperListResponse,
 )
 from app.config import settings
 from app.services.citation_graph import get_citation_graph as fetch_citation_graph

@@ -10,7 +10,7 @@ Sources:
 import json
 import re
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 
 from app.llm import ChatMessage, LLMConfig, LLMProvider
 
