@@ -23,7 +23,7 @@ def test_dblp_source_name_and_fetch_details():
 async def test_dblp_search_maps_metadata_and_links():
     payload = {"result": {"hits": {"hit": [{"info": {
         "title": "DBLP Paper",
-        "authors": {"author": ["Author A", "Author B"]},
+        "authors": {"author": [{"@pid": "1", "text": "Author A"}, "Author B"]},
         "year": "2025",
         "venue": "ICML",
         "url": "https://dblp.org/rec/conf/test/paper",
@@ -35,7 +35,7 @@ async def test_dblp_search_maps_metadata_and_links():
     client = AsyncMock()
     client.get.return_value = _dblp_response(payload)
 
-    with patch("app.services.paper_sources.dblp.httpx.AsyncClient") as client_class:
+    with patch("app.services.proxy.httpx.AsyncClient") as client_class:
         client_class.return_value.__aenter__.return_value = client
         results = await DBLPSource().search("database", max_results=5)
 
@@ -55,7 +55,7 @@ async def test_dblp_search_applies_year_filter():
     client = AsyncMock()
     client.get.return_value = _dblp_response(payload)
 
-    with patch("app.services.paper_sources.dblp.httpx.AsyncClient") as client_class:
+    with patch("app.services.proxy.httpx.AsyncClient") as client_class:
         client_class.return_value.__aenter__.return_value = client
         results = await DBLPSource().search("database", year_from=2020)
 

@@ -5,6 +5,26 @@ from app.services.proxy import get_async_client
 from app.services.paper_sources import PaperSource, PaperSourceResult
 
 
+def _author_names(authors_raw: object) -> list[str]:
+    """Normalize DBLP author strings and {text, @pid} objects to names."""
+    authors = authors_raw.get("author", []) if isinstance(authors_raw, dict) else authors_raw
+    if not isinstance(authors, list):
+        authors = [authors]
+
+    names: list[str] = []
+    for author in authors:
+        if isinstance(author, str):
+            name = author
+        elif isinstance(author, dict):
+            name = author.get("text") or author.get("#text") or ""
+        else:
+            name = ""
+        normalized = str(name).strip()
+        if normalized:
+            names.append(normalized)
+    return names
+
+
 class DBLPSource(PaperSource):
     source_name = "dblp"
 
@@ -46,14 +66,8 @@ class DBLPSource(PaperSource):
             if year_to and year and year > year_to:
                 continue
 
-            # DBLP 的 authors 可能是 dict 或 list
-            authors_raw = info.get("authors", {})
-            if isinstance(authors_raw, dict):
-                author_list = authors_raw.get("author", [])
-                if isinstance(author_list, str):
-                    author_list = [author_list]
-            else:
-                author_list = []
+            # DBLP 作者既可能是字符串，也可能是 {"@pid": ..., "text": ...} 对象。
+            author_list = _author_names(info.get("authors", {}))
 
             # 提取 DOI/arxiv
             doi = ""
@@ -71,7 +85,7 @@ class DBLPSource(PaperSource):
 
             results.append(PaperSourceResult(
                 title=info.get("title", ""),
-                authors=author_list if isinstance(author_list, list) else [author_list] if author_list else [],
+                authors=author_list,
                 abstract="",  # DBLP 不提供摘要
                 year=year,
                 venue=info.get("venue", ""),

@@ -163,6 +163,16 @@ class LLMProvider(Base):
     last_test_latency = Column(Integer, default=0)
 
 
+class AppSetting(Base):
+    """Persistent application-level key-value setting."""
+
+    __tablename__ = "app_settings"
+
+    key = Column(String(64), primary_key=True)
+    value = Column(Text, default="")
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class LLMUsage(Base):
     __tablename__ = "llm_usage"
 
