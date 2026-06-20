@@ -188,6 +188,16 @@ def _since(days: int) -> datetime:
     return datetime.now(timezone.utc) - timedelta(days=max(1, days))
 
 
+def _utc_isoformat(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return value.isoformat().replace("+00:00", "Z")
+
+
 def _set_only_active(db: Session, provider_id: str) -> None:
     db.query(LLMProviderModel).filter(LLMProviderModel.id != provider_id).update(
         {LLMProviderModel.is_active: False},
@@ -376,7 +386,7 @@ def usage_recent(limit: int = 20, db: Session = Depends(get_db)):
     return [
         {
             "id": row.id,
-            "timestamp": row.timestamp.isoformat() if row.timestamp else "",
+            "timestamp": _utc_isoformat(row.timestamp),
             "provider_name": row.provider_name,
             "model": row.model,
             "function_name": row.function_name,

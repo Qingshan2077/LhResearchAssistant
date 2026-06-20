@@ -5,6 +5,7 @@ import {
   Lightbulb,
   FileText,
   ClipboardCheck,
+  Bot,
   Settings,
   Moon,
   Sun,
@@ -22,6 +23,7 @@ export function Sidebar() {
     { path: "/ideas", icon: Lightbulb, label: t(language, "navIdeas") },
     { path: "/write", icon: FileText, label: t(language, "navWrite") },
     { path: "/review", icon: ClipboardCheck, label: t(language, "navReview") },
+    { path: "/llm-settings", icon: Bot, label: t(language, "navLLMSettings") },
     { path: "/settings", icon: Settings, label: t(language, "navSettings") },
   ];
 

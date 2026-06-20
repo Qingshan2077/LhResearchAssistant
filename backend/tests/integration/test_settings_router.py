@@ -60,3 +60,24 @@ def test_semantic_scholar_api_key_persists_encrypted(client, db_session):
     assert setting is not None
     assert setting.value != "s2-test-key"
     client.put("/api/v1/settings/semantic-scholar", json={"api_key": ""})
+
+
+def test_recent_usage_timestamp_is_explicit_utc(client, db_session):
+    from datetime import datetime
+
+    from app.database.sqlite import LLMUsage
+
+    db_session.add(
+        LLMUsage(
+            timestamp=datetime(2026, 6, 20, 12, 34, 56),
+            provider_name="Test Provider",
+            model="test-model",
+            function_name="chat",
+        )
+    )
+    db_session.commit()
+
+    response = client.get("/api/v1/settings/usage/recent")
+
+    assert response.status_code == 200
+    assert response.json()[0]["timestamp"] == "2026-06-20T12:34:56Z"

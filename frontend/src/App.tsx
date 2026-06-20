@@ -9,6 +9,7 @@ import IdeaSocraticPage from "./routes/IdeaSocraticPage";
 import WritePage from "./routes/WritePage";
 import ReviewPage from "./routes/ReviewPage";
 import SettingsPage from "./routes/SettingsPage";
+import LLMSettingsPage from "./routes/LLMSettingsPage";
 import { useSettingsStore } from "./stores/settingsStore";
 
 function App() {
@@ -31,6 +32,7 @@ function App() {
         <Route path="ideas/socratic" element={<IdeaSocraticPage />} />
         <Route path="write" element={<WritePage />} />
         <Route path="review" element={<ReviewPage />} />
+        <Route path="llm-settings" element={<LLMSettingsPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
     </Routes>

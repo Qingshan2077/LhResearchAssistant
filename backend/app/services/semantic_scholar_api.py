@@ -1,12 +1,27 @@
 """Shared Semantic Scholar authentication and rate-limit handling."""
 
 import asyncio
+import time
 
 import httpx
 from loguru import logger
 
 
 _api_key = ""
+_lock = asyncio.Lock()
+_last_request_time = 0.0
+_MIN_INTERVAL = 1.1
+
+
+async def _rate_limit() -> None:
+    """Ensure a minimum interval between process-wide S2 requests."""
+    global _last_request_time
+    async with _lock:
+        now = time.monotonic()
+        elapsed = now - _last_request_time
+        if elapsed < _MIN_INTERVAL:
+            await asyncio.sleep(_MIN_INTERVAL - elapsed)
+        _last_request_time = time.monotonic()
 
 
 def set_semantic_scholar_api_key(api_key: str | None) -> None:
@@ -37,7 +52,7 @@ async def semantic_scholar_get(
     max_retries: int = 2,
     **kwargs,
 ) -> httpx.Response:
-    """GET an S2 endpoint with API-key auth and bounded 429 backoff."""
+    """GET an S2 endpoint with auth, bounded backoff, and global rate limiting."""
     headers = dict(kwargs.pop("headers", {}) or {})
     headers.update({
         key: value
@@ -48,6 +63,7 @@ async def semantic_scholar_get(
         kwargs["headers"] = headers
 
     for attempt in range(max_retries + 1):
+        await _rate_limit()
         response = await client.get(url, **kwargs)
         if response.status_code != 429 or attempt >= max_retries:
             return response
