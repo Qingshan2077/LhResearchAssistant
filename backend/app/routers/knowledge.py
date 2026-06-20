@@ -21,39 +21,23 @@ def _normalize_text(value: object) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
-def _list_values(value: object) -> list[object]:
-    return value if isinstance(value, list) else []
-
-
 def _paper_concepts(paper: Paper) -> list[str]:
-    """Return stored keywords plus useful concepts from structured extraction."""
+    """Return normalized stored and extracted keywords only."""
     extracted = paper.extracted_data if isinstance(paper.extracted_data, dict) else {}
-    method = extracted.get("method") if isinstance(extracted.get("method"), dict) else {}
-    experiments = (
-        extracted.get("experiments")
-        if isinstance(extracted.get("experiments"), dict)
-        else {}
-    )
-
-    candidates: list[object] = _list_values(paper.keywords)
-    candidates.extend(_list_values(extracted.get("keywords")))
-    candidates.extend(
-        component.get("name")
-        for component in _list_values(method.get("components"))
-        if isinstance(component, dict)
-    )
-    for field in ("datasets", "baselines", "metrics"):
-        candidates.extend(_list_values(experiments.get(field)))
+    stored_keywords = paper.keywords if isinstance(paper.keywords, list) else []
+    extracted_keywords = extracted.get("keywords", [])
+    if not isinstance(extracted_keywords, list):
+        extracted_keywords = []
 
     concepts: list[str] = []
     seen: set[str] = set()
-    for candidate in candidates:
-        concept = _normalize_text(candidate)
+    for keyword in [*stored_keywords, *extracted_keywords]:
+        concept = _normalize_text(keyword)
         key = concept.casefold()
         if concept and key not in seen:
             seen.add(key)
             concepts.append(concept)
-    return concepts[:30]
+    return concepts
 
 
 def _local_citation_target(citation: dict, papers: list[Paper]) -> Paper | None:

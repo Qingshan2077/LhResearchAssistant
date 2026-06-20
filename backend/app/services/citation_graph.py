@@ -8,6 +8,7 @@ import httpx
 from loguru import logger
 
 from app.services.proxy import get_async_client
+from app.services.semantic_scholar_api import semantic_scholar_get
 
 
 SEMANTIC_SCHOLAR_BASE = "https://api.semanticscholar.org/graph/v1"
@@ -40,7 +41,8 @@ def _paper_item(item: dict[str, Any], group: str, is_seed: bool = False) -> dict
 
 
 async def _get_paper(client: httpx.AsyncClient, paper_id: str) -> dict[str, Any] | None:
-    resp = await client.get(
+    resp = await semantic_scholar_get(
+        client,
         f"{SEMANTIC_SCHOLAR_BASE}/paper/{_paper_path_id(paper_id)}",
         params={"fields": PAPER_FIELDS},
     )
@@ -56,7 +58,8 @@ async def _get_relation_page(
     relation: str,
     item_key: str,
 ) -> list[dict[str, Any]]:
-    resp = await client.get(
+    resp = await semantic_scholar_get(
+        client,
         f"{SEMANTIC_SCHOLAR_BASE}/paper/{_paper_path_id(paper_id)}/{relation}",
         params={"limit": 50, "fields": PAPER_FIELDS},
     )

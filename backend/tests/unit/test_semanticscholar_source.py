@@ -37,7 +37,7 @@ async def test_semantic_scholar_search_maps_results():
     client.get.return_value = response
 
     with patch(
-        "app.services.paper_sources.semanticscholar.httpx.AsyncClient"
+        "app.services.proxy.httpx.AsyncClient"
     ) as client_class:
         client_class.return_value.__aenter__.return_value = client
         results = await SemanticScholarSource().search("attention", max_results=5)
@@ -56,7 +56,7 @@ async def test_semantic_scholar_transport_error_is_propagated():
     client.get.side_effect = httpx.ConnectError("offline")
 
     with patch(
-        "app.services.paper_sources.semanticscholar.httpx.AsyncClient"
+        "app.services.proxy.httpx.AsyncClient"
     ) as client_class:
         client_class.return_value.__aenter__.return_value = client
         with pytest.raises(httpx.ConnectError):
@@ -68,7 +68,7 @@ async def test_semantic_scholar_fetch_missing_returns_none():
     client.get.return_value = _response({}, status_code=404)
 
     with patch(
-        "app.services.paper_sources.semanticscholar.httpx.AsyncClient"
+        "app.services.proxy.httpx.AsyncClient"
     ) as client_class:
         client_class.return_value.__aenter__.return_value = client
         result = await SemanticScholarSource().fetch_details("missing")

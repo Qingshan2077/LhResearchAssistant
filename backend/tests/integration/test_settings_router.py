@@ -43,3 +43,20 @@ def test_update_provider_persists(client, db_session):
     db_session.refresh(provider)
     assert provider.default_model == "new-model"
     assert provider.max_tokens == 16384
+
+
+def test_semantic_scholar_api_key_persists_encrypted(client, db_session):
+    from app.database.sqlite import AppSetting
+
+    response = client.put(
+        "/api/v1/settings/semantic-scholar",
+        json={"api_key": "s2-test-key"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"api_key": "s2-test-key"}
+    assert client.get("/api/v1/settings/semantic-scholar").json() == response.json()
+
+    setting = db_session.get(AppSetting, "semantic_scholar_api_key")
+    assert setting is not None
+    assert setting.value != "s2-test-key"
+    client.put("/api/v1/settings/semantic-scholar", json={"api_key": ""})

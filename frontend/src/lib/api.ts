@@ -76,6 +76,21 @@ export type SearchResponse = {
   source_errors: Record<string, string>;
 };
 
+export type ProxyConfig = {
+  enabled: boolean;
+  url: string;
+};
+
+export type ProxyTestResult = {
+  success: boolean;
+  message: string;
+  latency_ms: number;
+};
+
+export type SemanticScholarConfig = {
+  api_key: string;
+};
+
 export type LLMProvider = {
   id: string;
   name: string;

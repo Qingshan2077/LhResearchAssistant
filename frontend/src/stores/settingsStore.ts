@@ -5,6 +5,7 @@ import {
   type LLMProvider,
   type ProxyConfig,
   type ProxyTestResult,
+  type SemanticScholarConfig,
   type SystemInfo,
   type UsageByFunction,
   type UsageByProvider,
@@ -37,6 +38,7 @@ interface SettingsStore {
   proxyConfig: ProxyConfig;
   proxyTesting: boolean;
   proxyTestResult: ProxyTestResult | null;
+  semanticScholarConfig: SemanticScholarConfig;
   loadingUsage: boolean;
   loadingData: boolean;
 
@@ -55,6 +57,8 @@ interface SettingsStore {
   fetchProxyConfig: () => Promise<void>;
   updateProxyConfig: (config: ProxyConfig) => Promise<void>;
   testProxyConfig: (config: ProxyConfig) => Promise<void>;
+  fetchSemanticScholarConfig: () => Promise<void>;
+  updateSemanticScholarConfig: (config: SemanticScholarConfig) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -71,6 +75,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   proxyConfig: { enabled: false, url: "http://127.0.0.1:7897" },
   proxyTesting: false,
   proxyTestResult: null,
+  semanticScholarConfig: { api_key: "" },
   loadingUsage: false,
   loadingData: false,
 
@@ -183,5 +188,19 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     } finally {
       set({ proxyTesting: false });
     }
+  },
+
+  fetchSemanticScholarConfig: async () => {
+    const semanticScholarConfig = await api
+      .get("settings/semantic-scholar")
+      .json<SemanticScholarConfig>();
+    set({ semanticScholarConfig });
+  },
+
+  updateSemanticScholarConfig: async (config) => {
+    const semanticScholarConfig = await api
+      .put("settings/semantic-scholar", { json: config })
+      .json<SemanticScholarConfig>();
+    set({ semanticScholarConfig });
   },
 }));

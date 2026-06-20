@@ -395,6 +395,10 @@ class ThemeUpdate(BaseModel):
     theme: str  # dark / light
 
 
+class SemanticScholarConfig(BaseModel):
+    api_key: str = ""
+
+
 class ProxyConfig(BaseModel):
     enabled: bool = False
     url: str = "http://127.0.0.1:7897"

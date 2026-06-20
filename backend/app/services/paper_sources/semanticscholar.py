@@ -1,6 +1,7 @@
 """Semantic Scholar API 数据源"""
 
 from app.services.proxy import get_async_client
+from app.services.semantic_scholar_api import semantic_scholar_get
 
 from app.services.paper_sources import PaperSource, PaperSourceResult
 
@@ -29,7 +30,12 @@ class SemanticScholarSource(PaperSource):
                 params["year"] = years
 
         async with get_async_client() as client:
-            resp = await client.get(f"{self.BASE_URL}/paper/search", params=params, timeout=30)
+            resp = await semantic_scholar_get(
+                client,
+                f"{self.BASE_URL}/paper/search",
+                params=params,
+                timeout=30,
+            )
             resp.raise_for_status()
             data = resp.json()
 
@@ -57,7 +63,8 @@ class SemanticScholarSource(PaperSource):
     async def fetch_details(self, paper_id: str) -> PaperSourceResult | None:
         """按 S2 paper_id 获取详情"""
         async with get_async_client() as client:
-            resp = await client.get(
+            resp = await semantic_scholar_get(
+                client,
                 f"{self.BASE_URL}/paper/{paper_id}",
                 params={
                     "fields": "title,authors,year,abstract,citationCount,externalIds,venue,url,openAccessPdf",

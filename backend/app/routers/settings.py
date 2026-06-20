@@ -28,9 +28,20 @@ from app.database.sqlite import (
     WritingProject,
 )
 from app.llm.router import DEFAULT_BASE_URLS, DEFAULT_MODELS, get_provider_by_id
-from app.models import ProviderCreate, ProviderResponse, ProviderUpdate, ProxyConfig, ThemeUpdate
+from app.models import (
+    ProviderCreate,
+    ProviderResponse,
+    ProviderUpdate,
+    ProxyConfig,
+    SemanticScholarConfig,
+    ThemeUpdate,
+)
 from app.services.crypto import decrypt_api_key, encrypt_api_key
 from app.services.proxy import get_async_client, set_proxy
+from app.services.semantic_scholar_api import (
+    semantic_scholar_get,
+    set_semantic_scholar_api_key,
+)
 from app.version import __version__
 
 router = APIRouter()
@@ -69,6 +80,30 @@ def update_proxy_config(config: ProxyConfig, db: Session = Depends(get_db)):
     return config
 
 
+@router.get("/settings/semantic-scholar", response_model=SemanticScholarConfig)
+def get_semantic_scholar_config(db: Session = Depends(get_db)):
+    setting = db.get(AppSetting, "semantic_scholar_api_key")
+    api_key = decrypt_api_key(setting.value) if setting else ""
+    set_semantic_scholar_api_key(api_key)
+    return SemanticScholarConfig(api_key=api_key)
+
+
+@router.put("/settings/semantic-scholar", response_model=SemanticScholarConfig)
+def update_semantic_scholar_config(
+    config: SemanticScholarConfig,
+    db: Session = Depends(get_db),
+):
+    setting = db.get(AppSetting, "semantic_scholar_api_key")
+    encrypted_key = encrypt_api_key(config.api_key.strip())
+    if setting:
+        setting.value = encrypted_key
+    else:
+        db.add(AppSetting(key="semantic_scholar_api_key", value=encrypted_key))
+    db.commit()
+    set_semantic_scholar_api_key(config.api_key)
+    return SemanticScholarConfig(api_key=config.api_key.strip())
+
+
 @router.post("/settings/proxy/test")
 async def test_proxy_config(config: ProxyConfig):
     started = perf_counter()
@@ -78,7 +113,8 @@ async def test_proxy_config(config: ProxyConfig):
             proxy_override=proxy_override,
             timeout=10,
         ) as client:
-            response = await client.get(
+            response = await semantic_scholar_get(
+                client,
                 "https://api.semanticscholar.org/graph/v1/paper/search",
                 params={"query": "test", "limit": 1, "fields": "paperId"},
             )

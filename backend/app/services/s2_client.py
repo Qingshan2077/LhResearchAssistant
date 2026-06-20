@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 from typing import Optional
 
 from app.services.proxy import get_async_client
+from app.services.semantic_scholar_api import semantic_scholar_get
 from loguru import logger
 
 
@@ -45,7 +46,11 @@ async def search_paper_by_title(title: str) -> Optional[dict]:
         "fields": "paperId,title,year,authors,externalIds,url",
     }
     async with get_async_client(timeout=30) as client:
-        resp = await client.get(f"{SEMANTIC_SCHOLAR_BASE}/paper/search", params=params)
+        resp = await semantic_scholar_get(
+            client,
+            f"{SEMANTIC_SCHOLAR_BASE}/paper/search",
+            params=params,
+        )
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -85,7 +90,8 @@ async def verify_by_doi(doi: str) -> Optional[dict]:
         return None
 
     async with get_async_client(timeout=30) as client:
-        resp = await client.get(
+        resp = await semantic_scholar_get(
+            client,
             f"{SEMANTIC_SCHOLAR_BASE}/paper/DOI:{clean_doi}",
             params={"fields": "paperId,title,year,authors,externalIds,url"},
         )

@@ -6,9 +6,15 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect
 
 from app.config import settings
+from app.database import SessionLocal, engine
+from app.database.sqlite import AppSetting
 from app.logs import setup_logging
+from app.services.crypto import decrypt_api_key
+from app.services.proxy import set_proxy
+from app.services.semantic_scholar_api import set_semantic_scholar_api_key
 from app.version import __version__
 
 
@@ -16,6 +22,25 @@ from app.version import __version__
 async def lifespan(app: FastAPI):
     """Initialize process-wide services."""
     setup_logging()
+    if inspect(engine).has_table(AppSetting.__tablename__):
+        db = SessionLocal()
+        try:
+            proxy_enabled = db.get(AppSetting, "proxy_enabled")
+            proxy_url = db.get(AppSetting, "proxy_url")
+            set_proxy(
+                proxy_url.value
+                if proxy_enabled and proxy_enabled.value == "true" and proxy_url
+                else None
+            )
+            s2_key = db.get(AppSetting, "semantic_scholar_api_key")
+            set_semantic_scholar_api_key(
+                decrypt_api_key(s2_key.value) if s2_key else ""
+            )
+        finally:
+            db.close()
+    else:
+        set_proxy(None)
+        set_semantic_scholar_api_key("")
     yield
 
 

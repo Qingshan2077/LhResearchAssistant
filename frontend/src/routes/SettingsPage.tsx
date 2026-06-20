@@ -55,6 +55,9 @@ export default function SettingsPage() {
     fetchProxyConfig,
     updateProxyConfig,
     testProxyConfig,
+    semanticScholarConfig,
+    fetchSemanticScholarConfig,
+    updateSemanticScholarConfig,
   } = useSettingsStore();
   const [showAddForm, setShowAddForm] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -75,16 +78,25 @@ export default function SettingsPage() {
   const [proxyUrl, setProxyUrl] = useState(proxyConfig.url);
   const [proxySaving, setProxySaving] = useState(false);
   const [proxyError, setProxyError] = useState("");
+  const [s2ApiKey, setS2ApiKey] = useState(semanticScholarConfig.api_key);
+  const [s2Saving, setS2Saving] = useState(false);
+  const [s2Error, setS2Error] = useState("");
+  const [s2Saved, setS2Saved] = useState(false);
 
   useEffect(() => {
     fetchProviders();
     fetchSystemInfo();
     fetchProxyConfig();
-  }, [fetchProviders, fetchSystemInfo, fetchProxyConfig]);
+    fetchSemanticScholarConfig();
+  }, [fetchProviders, fetchSystemInfo, fetchProxyConfig, fetchSemanticScholarConfig]);
 
   useEffect(() => {
     setProxyUrl(proxyConfig.url);
   }, [proxyConfig.url]);
+
+  useEffect(() => {
+    setS2ApiKey(semanticScholarConfig.api_key);
+  }, [semanticScholarConfig.api_key]);
 
   const activeProvider = useMemo(() => providers.find((provider) => provider.is_active), [providers]);
 
@@ -181,6 +193,20 @@ export default function SettingsPage() {
       await testProxyConfig({ enabled: proxyConfig.enabled, url: proxyUrl.trim() });
     } catch (error) {
       setProxyError(error instanceof Error ? error.message : t(language, "proxyTestFailed"));
+    }
+  };
+
+  const saveSemanticScholarKey = async () => {
+    setS2Saving(true);
+    setS2Error("");
+    setS2Saved(false);
+    try {
+      await updateSemanticScholarConfig({ api_key: s2ApiKey.trim() });
+      setS2Saved(true);
+    } catch (error) {
+      setS2Error(error instanceof Error ? error.message : t(language, "s2ApiKeySaveFailed"));
+    } finally {
+      setS2Saving(false);
     }
   };
 
@@ -289,6 +315,41 @@ export default function SettingsPage() {
               <span>{proxyError || proxyTestResult?.message}</span>
             </div>
           )}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card">
+        <div className="border-b border-border px-4 py-3">
+          <div className="text-sm font-semibold">{t(language, "semanticScholarSettings")}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{t(language, "s2ApiKeyHelp")}</div>
+        </div>
+        <div className="grid gap-3 p-4">
+          <label className="grid gap-1.5 text-xs text-muted-foreground">
+            {t(language, "s2ApiKey")}
+            <input
+              type="password"
+              value={s2ApiKey}
+              onChange={(event) => {
+                setS2ApiKey(event.target.value);
+                setS2Saved(false);
+              }}
+              placeholder={t(language, "s2ApiKeyPlaceholder")}
+              autoComplete="off"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => void saveSemanticScholarKey()}
+              disabled={s2Saving}
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50"
+            >
+              {s2Saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {t(language, "saveChanges")}
+            </button>
+            {s2Saved && <span className="text-xs text-green-500">{t(language, "s2ApiKeySaved")}</span>}
+            {s2Error && <span className="text-xs text-destructive">{s2Error}</span>}
+          </div>
         </div>
       </section>
 
