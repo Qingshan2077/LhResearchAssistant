@@ -1,6 +1,6 @@
 """Semantic Scholar API 数据源"""
 
-import httpx
+from app.services.proxy import get_async_client
 
 from app.services.paper_sources import PaperSource, PaperSourceResult
 
@@ -28,7 +28,7 @@ class SemanticScholarSource(PaperSource):
             if years != "-":
                 params["year"] = years
 
-        async with httpx.AsyncClient() as client:
+        async with get_async_client() as client:
             resp = await client.get(f"{self.BASE_URL}/paper/search", params=params, timeout=30)
             resp.raise_for_status()
             data = resp.json()
@@ -56,7 +56,7 @@ class SemanticScholarSource(PaperSource):
 
     async def fetch_details(self, paper_id: str) -> PaperSourceResult | None:
         """按 S2 paper_id 获取详情"""
-        async with httpx.AsyncClient() as client:
+        async with get_async_client() as client:
             resp = await client.get(
                 f"{self.BASE_URL}/paper/{paper_id}",
                 params={

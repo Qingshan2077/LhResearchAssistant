@@ -5,7 +5,11 @@ import { useChatStore } from "../stores/chatStore";
 import { useSettingsStore } from "../stores/settingsStore";
 
 interface ChatPanelProps {
-  paperContext?: { title: string; abstract: string };
+  paperContext?: {
+    title: string;
+    abstract: string;
+    extractedData?: Record<string, unknown>;
+  };
   defaultOpen?: boolean;
 }
 
@@ -17,12 +21,18 @@ export function ChatPanel({ paperContext, defaultOpen = true }: ChatPanelProps) 
 
   const context = useMemo(() => {
     if (!paperContext) return "";
-    return [
+    const sections = [
       "You are answering inside a research assistant app.",
       "Use the current paper as context when it is relevant.",
       `Current paper title: ${paperContext.title}`,
       `Current paper abstract: ${paperContext.abstract || "N/A"}`,
-    ].join("\n");
+    ];
+    if (paperContext.extractedData && Object.keys(paperContext.extractedData).length > 0) {
+      sections.push(
+        `Current paper extracted data (method components, datasets, metrics and other structured analysis):\n${JSON.stringify(paperContext.extractedData, null, 2)}`
+      );
+    }
+    return sections.join("\n");
   }, [paperContext]);
 
   const submitMessage = async () => {

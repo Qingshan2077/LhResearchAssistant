@@ -1,6 +1,6 @@
 """CrossRef API 数据源 — DOI 解析和引用验证"""
 
-import httpx
+from app.services.proxy import get_async_client
 
 from app.services.paper_sources import PaperSource, PaperSourceResult
 
@@ -28,7 +28,7 @@ class CrossrefSource(PaperSource):
             sep = "," if existing else ""
             params["filter"] = f"{existing}{sep}until-pub-date:{year_to}"
 
-        async with httpx.AsyncClient() as client:
+        async with get_async_client() as client:
             resp = await client.get(self.BASE_URL, params=params, timeout=30)
             resp.raise_for_status()
             data = resp.json()
@@ -58,7 +58,7 @@ class CrossrefSource(PaperSource):
 
     async def fetch_details(self, paper_id: str) -> PaperSourceResult | None:
         """按 DOI 获取详情"""
-        async with httpx.AsyncClient() as client:
+        async with get_async_client() as client:
             resp = await client.get(f"{self.BASE_URL}/{paper_id}", timeout=30)
             if resp.status_code == 404:
                 return None
@@ -84,6 +84,6 @@ class CrossrefSource(PaperSource):
 
     async def verify_doi(self, doi: str) -> bool:
         """验证 DOI 是否存在"""
-        async with httpx.AsyncClient() as client:
+        async with get_async_client() as client:
             resp = await client.head(f"{self.BASE_URL}/{doi}", timeout=15)
             return resp.status_code == 200

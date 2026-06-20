@@ -5,7 +5,7 @@ import re
 from difflib import SequenceMatcher
 from typing import Optional
 
-import httpx
+from app.services.proxy import get_async_client
 from loguru import logger
 
 
@@ -44,7 +44,7 @@ async def search_paper_by_title(title: str) -> Optional[dict]:
         "limit": 3,
         "fields": "paperId,title,year,authors,externalIds,url",
     }
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with get_async_client(timeout=30) as client:
         resp = await client.get(f"{SEMANTIC_SCHOLAR_BASE}/paper/search", params=params)
         if resp.status_code == 404:
             return None
@@ -84,7 +84,7 @@ async def verify_by_doi(doi: str) -> Optional[dict]:
     if not clean_doi:
         return None
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with get_async_client(timeout=30) as client:
         resp = await client.get(
             f"{SEMANTIC_SCHOLAR_BASE}/paper/DOI:{clean_doi}",
             params={"fields": "paperId,title,year,authors,externalIds,url"},

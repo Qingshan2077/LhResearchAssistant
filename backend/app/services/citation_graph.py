@@ -7,6 +7,8 @@ from urllib.parse import quote
 import httpx
 from loguru import logger
 
+from app.services.proxy import get_async_client
+
 
 SEMANTIC_SCHOLAR_BASE = "https://api.semanticscholar.org/graph/v1"
 PAPER_FIELDS = "paperId,title,year,authors,venue,externalIds,citationCount,url"
@@ -80,7 +82,7 @@ def _dedupe(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 async def get_citation_graph(paper_id: str) -> dict[str, Any]:
     """Return seed paper, references, citations and ReactFlow-ready graph data."""
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with get_async_client(timeout=30) as client:
             seed_raw = await _get_paper(client, paper_id)
             if not seed_raw:
                 return {"error": "Paper not found on Semantic Scholar."}

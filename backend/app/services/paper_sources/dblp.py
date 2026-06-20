@@ -1,6 +1,6 @@
 """DBLP API 数据源 — CS 领域专属"""
 
-import httpx
+from app.services.proxy import get_async_client
 
 from app.services.paper_sources import PaperSource, PaperSourceResult
 
@@ -23,7 +23,7 @@ class DBLPSource(PaperSource):
             "format": "json",
         }
 
-        async with httpx.AsyncClient() as client:
+        async with get_async_client() as client:
             resp = await client.get(self.SEARCH_URL, params=params, timeout=30)
             resp.raise_for_status()
             data = resp.json()
