@@ -476,7 +476,11 @@ export default function ReaderPage() {
             {activeTab === "chat" && (
               <div className="flex h-full min-h-[420px]">
                 <ChatPanel
-                  paperContext={{ title: paper.title, abstract: paper.abstract }}
+                  paperContext={{
+                    title: paper.title,
+                    abstract: paper.abstract,
+                    extractedData: paper.extracted_data,
+                  }}
                   defaultOpen
                 />
               </div>

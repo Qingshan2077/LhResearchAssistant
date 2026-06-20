@@ -2,7 +2,8 @@
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from urllib.parse import urlsplit
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Paper ──────────────────────────────────────────
@@ -392,3 +393,19 @@ class ProviderResponse(ProviderCreate):
 # ── Settings ─────────────────────────────────────
 class ThemeUpdate(BaseModel):
     theme: str  # dark / light
+
+
+class ProxyConfig(BaseModel):
+    enabled: bool = False
+    url: str = "http://127.0.0.1:7897"
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        normalized = value.strip()
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("Proxy URL must be a valid HTTP or HTTPS URL")
+        if parsed.username or parsed.password:
+            raise ValueError("Authenticated proxy URLs are not supported")
+        return normalized

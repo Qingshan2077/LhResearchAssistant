@@ -4,6 +4,7 @@ import os
 import platform
 import shutil
 from datetime import datetime, timedelta, timezone
+from time import perf_counter
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,6 +17,7 @@ from app.config import settings as app_settings
 from app.database import engine, get_db
 from app.database.chroma_client import collection
 from app.database.sqlite import (
+    AppSetting,
     LLMProvider as LLMProviderModel,
     LLMUsage,
     MindMapNode,
@@ -26,8 +28,9 @@ from app.database.sqlite import (
     WritingProject,
 )
 from app.llm.router import DEFAULT_BASE_URLS, DEFAULT_MODELS, get_provider_by_id
-from app.models import ProviderCreate, ProviderResponse, ProviderUpdate, ThemeUpdate
+from app.models import ProviderCreate, ProviderResponse, ProviderUpdate, ProxyConfig, ThemeUpdate
 from app.services.crypto import decrypt_api_key, encrypt_api_key
+from app.services.proxy import get_async_client, set_proxy
 from app.version import __version__
 
 router = APIRouter()
@@ -35,6 +38,63 @@ router = APIRouter()
 
 class ProviderTestRequest(BaseModel):
     provider_id: str | None = None
+
+
+@router.get("/settings/proxy", response_model=ProxyConfig)
+def get_proxy_config(db: Session = Depends(get_db)):
+    enabled = db.get(AppSetting, "proxy_enabled")
+    url = db.get(AppSetting, "proxy_url")
+    config = ProxyConfig(
+        enabled=enabled is not None and enabled.value == "true",
+        url=url.value if url and url.value else "http://127.0.0.1:7897",
+    )
+    set_proxy(config.url if config.enabled else None)
+    return config
+
+
+@router.put("/settings/proxy", response_model=ProxyConfig)
+def update_proxy_config(config: ProxyConfig, db: Session = Depends(get_db)):
+    values = {
+        "proxy_enabled": "true" if config.enabled else "false",
+        "proxy_url": config.url,
+    }
+    for key, value in values.items():
+        setting = db.get(AppSetting, key)
+        if setting:
+            setting.value = value
+        else:
+            db.add(AppSetting(key=key, value=value))
+    db.commit()
+    set_proxy(config.url if config.enabled else None)
+    return config
+
+
+@router.post("/settings/proxy/test")
+async def test_proxy_config(config: ProxyConfig):
+    started = perf_counter()
+    try:
+        proxy_override = config.url if config.enabled else None
+        async with get_async_client(
+            proxy_override=proxy_override,
+            timeout=10,
+        ) as client:
+            response = await client.get(
+                "https://api.semanticscholar.org/graph/v1/paper/search",
+                params={"query": "test", "limit": 1, "fields": "paperId"},
+            )
+            response.raise_for_status()
+        return {
+            "success": True,
+            "message": f"Connected successfully (HTTP {response.status_code})",
+            "latency_ms": round((perf_counter() - started) * 1000),
+        }
+    except Exception as exc:
+        logger.warning("Proxy connection test failed: {}", exc)
+        return {
+            "success": False,
+            "message": str(exc)[:200] or exc.__class__.__name__,
+            "latency_ms": round((perf_counter() - started) * 1000),
+        }
 
 
 def _provider_to_response(provider: LLMProviderModel) -> dict:
@@ -385,7 +445,7 @@ def system_info():
 
 @router.get("/settings/theme")
 def get_theme():
-    return {"theme": "dark"}
+    return {"theme": "light"}
 
 
 @router.patch("/settings/theme")

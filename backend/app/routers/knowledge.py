@@ -1,5 +1,7 @@
 """知识库路由 — 语义搜索 + 知识图谱 + 思维图"""
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -13,6 +15,72 @@ from app.llm.router import get_active_provider
 from app.models import KnowledgeQuery, GraphData, MindMapData, MindMapUpdate
 
 router = APIRouter()
+
+
+def _normalize_text(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _list_values(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
+
+
+def _paper_concepts(paper: Paper) -> list[str]:
+    """Return stored keywords plus useful concepts from structured extraction."""
+    extracted = paper.extracted_data if isinstance(paper.extracted_data, dict) else {}
+    method = extracted.get("method") if isinstance(extracted.get("method"), dict) else {}
+    experiments = (
+        extracted.get("experiments")
+        if isinstance(extracted.get("experiments"), dict)
+        else {}
+    )
+
+    candidates: list[object] = _list_values(paper.keywords)
+    candidates.extend(_list_values(extracted.get("keywords")))
+    candidates.extend(
+        component.get("name")
+        for component in _list_values(method.get("components"))
+        if isinstance(component, dict)
+    )
+    for field in ("datasets", "baselines", "metrics"):
+        candidates.extend(_list_values(experiments.get(field)))
+
+    concepts: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        concept = _normalize_text(candidate)
+        key = concept.casefold()
+        if concept and key not in seen:
+            seen.add(key)
+            concepts.append(concept)
+    return concepts[:30]
+
+
+def _local_citation_target(citation: dict, papers: list[Paper]) -> Paper | None:
+    """Match a verified citation result to a paper already in this graph."""
+    match = citation.get("match") if isinstance(citation.get("match"), dict) else {}
+    external_ids = match.get("externalIds") if isinstance(match.get("externalIds"), dict) else {}
+    cited_title = _normalize_text(match.get("title") or citation.get("citation")).casefold()
+    cited_doi = _normalize_text(external_ids.get("DOI")).casefold()
+    cited_arxiv = _normalize_text(external_ids.get("ArXiv")).casefold()
+    cited_s2_id = _normalize_text(match.get("paperId") or citation.get("paperId"))
+
+    for paper in papers:
+        extracted = paper.extracted_data if isinstance(paper.extracted_data, dict) else {}
+        local_s2_id = _normalize_text(
+            extracted.get("s2_paper_id")
+            or extracted.get("paperId")
+            or extracted.get("semantic_scholar_id")
+        )
+        if cited_s2_id and local_s2_id == cited_s2_id:
+            return paper
+        if cited_doi and _normalize_text(paper.doi).casefold() == cited_doi:
+            return paper
+        if cited_arxiv and _normalize_text(paper.arxiv_id).casefold() == cited_arxiv:
+            return paper
+        if cited_title and _normalize_text(paper.title).casefold() == cited_title:
+            return paper
+    return None
 
 
 @router.post("/knowledge/query")
@@ -111,8 +179,9 @@ def get_knowledge_graph(project_id: str | None = None, db: Session = Depends(get
         })
 
         # 关键词节点
-        for kw in (paper.keywords or []):
-            kw_id = f"concept:{kw.lower().replace(' ', '_')}"
+        for kw in _paper_concepts(paper):
+            concept_key = re.sub(r"[^\w-]+", "_", kw.casefold()).strip("_")
+            kw_id = f"concept:{concept_key}"
             if kw_id not in concept_ids:
                 nodes.append({
                     "id": kw_id,
@@ -128,6 +197,7 @@ def get_knowledge_graph(project_id: str | None = None, db: Session = Depends(get
             })
 
     paper_ids = [paper.id for paper in papers]
+    edge_keys = {(edge["source"], edge["target"], edge["type"]) for edge in edges}
     if paper_ids:
         relations = (
             db.query(PaperRelation)
@@ -148,6 +218,37 @@ def get_knowledge_graph(project_id: str | None = None, db: Session = Depends(get
                     "confidence": rel.confidence,
                 },
             })
+            edge_keys.add((
+                f"paper:{rel.source_paper_id}",
+                f"paper:{rel.target_paper_id}",
+                rel.relation_type,
+            ))
+
+        # Verified citations contain enough metadata to infer local paper edges
+        # even when no explicit PaperRelation row exists.
+        for paper in papers:
+            for citation in (paper.citation_verified or []):
+                if not isinstance(citation, dict) or citation.get("status") != "verified":
+                    continue
+                target = _local_citation_target(citation, papers)
+                if not target or target.id == paper.id:
+                    continue
+                edge_key = (f"paper:{paper.id}", f"paper:{target.id}", "cites")
+                if edge_key in edge_keys:
+                    continue
+                match = citation.get("match") if isinstance(citation.get("match"), dict) else {}
+                edges.append({
+                    "source": edge_key[0],
+                    "target": edge_key[1],
+                    "type": "cites",
+                    "label": "cites",
+                    "data": {
+                        "description": f"Verified citation of {target.title}",
+                        "confidence": match.get("score", 1.0),
+                        "inferred": True,
+                    },
+                })
+                edge_keys.add(edge_key)
 
     return GraphData(nodes=nodes, edges=edges)
 

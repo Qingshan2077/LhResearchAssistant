@@ -49,6 +49,12 @@ export default function SettingsPage() {
     testProvider,
     systemInfo,
     fetchSystemInfo,
+    proxyConfig,
+    proxyTesting,
+    proxyTestResult,
+    fetchProxyConfig,
+    updateProxyConfig,
+    testProxyConfig,
   } = useSettingsStore();
   const [showAddForm, setShowAddForm] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -66,11 +72,19 @@ export default function SettingsPage() {
     is_active: true,
   });
   const [drafts, setDrafts] = useState<Record<string, ProviderDraft>>({});
+  const [proxyUrl, setProxyUrl] = useState(proxyConfig.url);
+  const [proxySaving, setProxySaving] = useState(false);
+  const [proxyError, setProxyError] = useState("");
 
   useEffect(() => {
     fetchProviders();
     fetchSystemInfo();
-  }, [fetchProviders, fetchSystemInfo]);
+    fetchProxyConfig();
+  }, [fetchProviders, fetchSystemInfo, fetchProxyConfig]);
+
+  useEffect(() => {
+    setProxyUrl(proxyConfig.url);
+  }, [proxyConfig.url]);
 
   const activeProvider = useMemo(() => providers.find((provider) => provider.is_active), [providers]);
 
@@ -145,6 +159,31 @@ export default function SettingsPage() {
     }
   };
 
+  const saveProxy = async (enabled = proxyConfig.enabled) => {
+    setProxySaving(true);
+    setProxyError("");
+    try {
+      await updateProxyConfig({ enabled, url: proxyUrl.trim() });
+    } catch (error) {
+      setProxyError(error instanceof Error ? error.message : t(language, "proxySaveFailed"));
+    } finally {
+      setProxySaving(false);
+    }
+  };
+
+  const toggleProxy = async (enabled: boolean) => {
+    await saveProxy(enabled);
+  };
+
+  const testProxy = async () => {
+    setProxyError("");
+    try {
+      await testProxyConfig({ enabled: proxyConfig.enabled, url: proxyUrl.trim() });
+    } catch (error) {
+      setProxyError(error instanceof Error ? error.message : t(language, "proxyTestFailed"));
+    }
+  };
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -193,6 +232,63 @@ export default function SettingsPage() {
               {t(language, "english")}
             </button>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <div>
+            <div className="text-sm font-semibold">{t(language, "networkProxy")}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">{t(language, "proxyHelp")}</div>
+          </div>
+          <label className="relative inline-flex cursor-pointer items-center">
+            <input
+              type="checkbox"
+              checked={proxyConfig.enabled}
+              disabled={proxySaving}
+              onChange={(event) => void toggleProxy(event.target.checked)}
+              className="peer sr-only"
+            />
+            <span className="h-6 w-11 rounded-full bg-muted transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:bg-primary peer-checked:after:translate-x-5 peer-disabled:opacity-50" />
+          </label>
+        </div>
+        <div className="grid gap-3 p-4">
+          <label className="grid gap-1.5 text-xs text-muted-foreground">
+            {t(language, "proxyUrl")}
+            <input
+              value={proxyUrl}
+              onChange={(event) => setProxyUrl(event.target.value)}
+              placeholder="http://127.0.0.1:7897"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => void saveProxy()}
+              disabled={proxySaving || !proxyUrl.trim()}
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50"
+            >
+              {proxySaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {t(language, "saveChanges")}
+            </button>
+            <button
+              onClick={() => void testProxy()}
+              disabled={proxyTesting || !proxyUrl.trim()}
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-muted disabled:opacity-50"
+            >
+              {proxyTesting ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />}
+              {t(language, "testProxy")}
+            </button>
+            <span className="text-xs text-muted-foreground">
+              {proxyConfig.enabled ? t(language, "proxyEnabled") : t(language, "proxyDisabled")}
+            </span>
+          </div>
+          {(proxyTestResult || proxyError) && (
+            <div className={`flex items-start gap-2 text-xs ${proxyTestResult?.success && !proxyError ? "text-green-500" : "text-destructive"}`}>
+              {proxyTestResult?.success && !proxyError ? <Check size={14} /> : <XCircle size={14} />}
+              <span>{proxyError || proxyTestResult?.message}</span>
+            </div>
+          )}
         </div>
       </section>
 

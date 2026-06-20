@@ -3,6 +3,8 @@ import {
   api,
   type DataStats,
   type LLMProvider,
+  type ProxyConfig,
+  type ProxyTestResult,
   type SystemInfo,
   type UsageByFunction,
   type UsageByProvider,
@@ -16,6 +18,11 @@ const getInitialLanguage = (): Language => {
   return stored === "en" || stored === "zh" ? stored : "zh";
 };
 
+const getInitialTheme = (): "dark" | "light" => {
+  const stored = localStorage.getItem("app-theme");
+  return stored === "dark" || stored === "light" ? stored : "light";
+};
+
 interface SettingsStore {
   theme: "dark" | "light";
   language: Language;
@@ -27,6 +34,9 @@ interface SettingsStore {
   recentUsage: UsageRecord[];
   dataStats: DataStats | null;
   systemInfo: SystemInfo | null;
+  proxyConfig: ProxyConfig;
+  proxyTesting: boolean;
+  proxyTestResult: ProxyTestResult | null;
   loadingUsage: boolean;
   loadingData: boolean;
 
@@ -42,10 +52,13 @@ interface SettingsStore {
   fetchDataStats: () => Promise<void>;
   clearVectorCache: () => Promise<void>;
   fetchSystemInfo: () => Promise<void>;
+  fetchProxyConfig: () => Promise<void>;
+  updateProxyConfig: (config: ProxyConfig) => Promise<void>;
+  testProxyConfig: (config: ProxyConfig) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
-  theme: "dark",
+  theme: getInitialTheme(),
   language: getInitialLanguage(),
   providers: [],
   activeProviderId: null,
@@ -55,12 +68,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   recentUsage: [],
   dataStats: null,
   systemInfo: null,
+  proxyConfig: { enabled: false, url: "http://127.0.0.1:7897" },
+  proxyTesting: false,
+  proxyTestResult: null,
   loadingUsage: false,
   loadingData: false,
 
   toggleTheme: () => {
     set((s) => {
       const next = s.theme === "dark" ? "light" : "dark";
+      localStorage.setItem("app-theme", next);
       document.documentElement.classList.toggle("dark", next === "dark");
       return { theme: next };
     });
@@ -142,5 +159,29 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   fetchSystemInfo: async () => {
     const systemInfo = await api.get("settings/system-info").json<SystemInfo>();
     set({ systemInfo });
+  },
+
+  fetchProxyConfig: async () => {
+    const proxyConfig = await api.get("settings/proxy").json<ProxyConfig>();
+    set({ proxyConfig, proxyTestResult: null });
+  },
+
+  updateProxyConfig: async (config) => {
+    const proxyConfig = await api
+      .put("settings/proxy", { json: config })
+      .json<ProxyConfig>();
+    set({ proxyConfig, proxyTestResult: null });
+  },
+
+  testProxyConfig: async (config) => {
+    set({ proxyTesting: true, proxyTestResult: null });
+    try {
+      const proxyTestResult = await api
+        .post("settings/proxy/test", { json: config })
+        .json<ProxyTestResult>();
+      set({ proxyTestResult });
+    } finally {
+      set({ proxyTesting: false });
+    }
   },
 }));

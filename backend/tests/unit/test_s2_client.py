@@ -23,7 +23,7 @@ async def test_search_by_title_returns_verified_match():
         "paperId": "abc123", "title": "A Complete Test Paper", "year": 2025,
         "authors": [{"name": "Author A"}], "externalIds": {}, "url": "https://example.test",
     }]})
-    with patch("app.services.s2_client.httpx.AsyncClient") as client_class:
+    with patch("app.services.proxy.httpx.AsyncClient") as client_class:
         client_class.return_value.__aenter__.return_value = client
         result = await search_paper_by_title("A Complete Test Paper")
     assert result["status"] == "verified"
@@ -34,7 +34,7 @@ async def test_search_by_title_returns_verified_match():
 @pytest.mark.asyncio
 async def test_search_by_title_empty_response_is_not_found():
     client = _mock_client({"data": []})
-    with patch("app.services.s2_client.httpx.AsyncClient") as client_class:
+    with patch("app.services.proxy.httpx.AsyncClient") as client_class:
         client_class.return_value.__aenter__.return_value = client
         result = await search_paper_by_title("Unknown Complete Paper")
     assert result == {"status": "not_found", "match": None, "candidates": []}
@@ -43,7 +43,7 @@ async def test_search_by_title_empty_response_is_not_found():
 @pytest.mark.asyncio
 async def test_search_by_title_404_returns_none():
     client = _mock_client({}, status_code=404)
-    with patch("app.services.s2_client.httpx.AsyncClient") as client_class:
+    with patch("app.services.proxy.httpx.AsyncClient") as client_class:
         client_class.return_value.__aenter__.return_value = client
         assert await search_paper_by_title("Unknown Complete Paper") is None
 
@@ -52,7 +52,7 @@ async def test_search_by_title_404_returns_none():
 async def test_search_by_title_propagates_transport_errors():
     client = AsyncMock()
     client.get.side_effect = httpx.ConnectError("offline")
-    with patch("app.services.s2_client.httpx.AsyncClient") as client_class:
+    with patch("app.services.proxy.httpx.AsyncClient") as client_class:
         client_class.return_value.__aenter__.return_value = client
         with pytest.raises(httpx.ConnectError):
             await search_paper_by_title("A Complete Test Paper")

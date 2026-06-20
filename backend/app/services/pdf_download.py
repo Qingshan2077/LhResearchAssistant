@@ -8,6 +8,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.proxy import get_async_client
 
 
 class PdfDownloadResult(BaseModel):
@@ -33,7 +34,7 @@ async def download_pdf(pdf_url: str, title: str = "") -> PdfDownloadResult:
     cache_path = Path(settings.papers_cache_dir) / file_name
 
     try:
-        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+        async with get_async_client(timeout=60, follow_redirects=True) as client:
             resp = await client.get(pdf_url)
             resp.raise_for_status()
 
