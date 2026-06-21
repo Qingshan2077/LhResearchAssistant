@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, BrainCircuit, CheckCircle2, Lightbulb, Loader2, Send, Square, Target } from "lucide-react";
+import { ArrowLeft, BrainCircuit, CheckCircle2, History, Lightbulb, Loader2, Plus, Send, Square, Target, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import { useNavigate } from "react-router-dom";
 import { t } from "../i18n";
@@ -34,21 +34,31 @@ export default function IdeaSocraticPage() {
     convergence,
     turnCount,
     isActive,
+    historyView,
     connecting,
+    historyLoading,
     error,
     summary,
+    historyList,
     createSession,
     sendMessage,
     getSummary,
+    fetchHistory,
+    loadHistory,
+    deleteHistory,
     closeSession,
+    resetSession,
   } = useSocraticStore();
   const [draft, setDraft] = useState("");
   const [initial, setInitial] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
 
   useEffect(() => {
-    return () => closeSession();
-  }, [closeSession]);
+    void fetchHistory();
+    return () => {
+      void closeSession(false);
+    };
+  }, [closeSession, fetchHistory]);
 
   const activeSignals = useMemo(
     () => Object.values(convergence || {}).filter(Boolean).length,
@@ -76,6 +86,16 @@ export default function IdeaSocraticPage() {
     }
   };
 
+  const openHistory = async (historyId: string) => {
+    if (isActive && !window.confirm(t(language, "currentSessionSaveConfirm"))) return;
+    await loadHistory(historyId);
+  };
+
+  const removeHistory = async (historyId: string) => {
+    if (!window.confirm(t(language, "deleteSocraticHistoryConfirm"))) return;
+    await deleteHistory(historyId);
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-5">
       <section className="rounded-lg border border-border bg-card p-5">
@@ -93,7 +113,7 @@ export default function IdeaSocraticPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>{sessionId ? (isActive ? "探索中" : "已结束") : "未开始"}</span>
+            <span>{sessionId ? (historyView ? "历史只读" : isActive ? "探索中" : "已结束") : "未开始"}</span>
             <span>·</span>
             <span>{turnCount} turns</span>
             <span>·</span>
@@ -125,23 +145,50 @@ export default function IdeaSocraticPage() {
       </section>
 
       {!sessionId ? (
-        <section className="rounded-lg border border-border bg-card p-5">
-          <div className="mb-3 text-sm font-medium">{t(language, "socraticPrompt")}</div>
-          <textarea
-            value={initial}
-            onChange={(event) => setInitial(event.target.value)}
-            placeholder={t(language, "socraticPlaceholder")}
-            className="h-36 w-full resize-none rounded-md border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"
-          />
-          <button
-            onClick={start}
-            disabled={connecting}
-            className="mt-3 inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm text-primary-foreground disabled:opacity-50"
-          >
-            {connecting ? <Loader2 size={16} className="animate-spin" /> : <Lightbulb size={16} />}
-            开始引导
-          </button>
-        </section>
+        <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
+            <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-medium">
+              <History size={16} />
+              {t(language, "historySessions")}
+              {historyLoading && <Loader2 size={13} className="ml-auto animate-spin" />}
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-2">
+              {!historyLoading && historyList.length === 0 ? (
+                <div className="p-6 text-center text-xs text-muted-foreground">{t(language, "noHistorySessions")}</div>
+              ) : historyList.map((item) => (
+                <div key={item.id} className="mb-2 flex items-start gap-2 rounded-md border border-border p-3">
+                  <button onClick={() => void openHistory(item.id)} className="min-w-0 flex-1 text-left">
+                    <div className="truncate text-sm font-medium">{item.title}</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {item.turn_count} turns · Layer {item.layer} · {formatHistoryDate(item.updated_at, language)}
+                    </div>
+                  </button>
+                  <button onClick={() => void removeHistory(item.id)} className="rounded p-1 text-muted-foreground hover:text-destructive">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-border bg-card p-5">
+            <div className="mb-3 text-sm font-medium">{t(language, "socraticPrompt")}</div>
+            <textarea
+              value={initial}
+              onChange={(event) => setInitial(event.target.value)}
+              placeholder={t(language, "socraticPlaceholder")}
+              className="h-36 w-full resize-none rounded-md border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"
+            />
+            <button
+              onClick={start}
+              disabled={connecting}
+              className="mt-3 inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm text-primary-foreground disabled:opacity-50"
+            >
+              {connecting ? <Loader2 size={16} className="animate-spin" /> : <Lightbulb size={16} />}
+              开始引导
+            </button>
+          </section>
+        </div>
       ) : (
         <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
@@ -149,14 +196,24 @@ export default function IdeaSocraticPage() {
               <div className="text-sm font-medium">
                 Layer {currentLayer}: {layerName}
               </div>
-              <button
-                onClick={loadSummary}
-                disabled={summaryLoading}
-                className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
-              >
-                {summaryLoading ? <Loader2 size={13} className="animate-spin" /> : <Target size={13} />}
-                生成 Summary
-              </button>
+              <div className="flex items-center gap-2">
+                {!isActive && (
+                  <button onClick={resetSession} className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted">
+                    <Plus size={13} />
+                    {t(language, "newConversation")}
+                  </button>
+                )}
+                {isActive && !historyView && (
+                  <button
+                    onClick={loadSummary}
+                    disabled={summaryLoading}
+                    className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
+                  >
+                    {summaryLoading ? <Loader2 size={13} className="animate-spin" /> : <Target size={13} />}
+                    生成 Summary
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto p-4">
@@ -241,7 +298,7 @@ export default function IdeaSocraticPage() {
             <section className="max-h-[42%] overflow-auto rounded-lg border border-border bg-card p-4">
               <div className="mb-3 flex items-center justify-between">
                 <div className="text-sm font-semibold">Research Plan</div>
-                <button onClick={closeSession} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                <button onClick={() => void closeSession(true)} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
                   <Square size={12} />
                   结束
                 </button>
@@ -272,4 +329,14 @@ function SummaryItem({ label, value }: { label: string; value: unknown }) {
       <div>{String(value)}</div>
     </div>
   );
+}
+
+function formatHistoryDate(value: string, language: "en" | "zh") {
+  if (!value) return "-";
+  return new Date(value).toLocaleString(language === "zh" ? "zh-CN" : "en", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }

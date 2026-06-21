@@ -11,9 +11,17 @@ import json
 import re
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from loguru import logger
+from sqlalchemy.orm import Session
 
+from app.database.sqlite import (
+    Project,
+    SocraticInsight as SocraticInsightModel,
+    SocraticMessage as SocraticMessageModel,
+    SocraticSession as SocraticSessionModel,
+)
 from app.llm import ChatMessage, LLMConfig, LLMProvider
 
 
@@ -37,6 +45,8 @@ class SocraticSession:
     rq_history: list[str] = field(default_factory=list)
     no_insight_turns: int = 0
     wording_advisory_sent: bool = False
+    title: str = ""
+    summary: dict | None = None
 
 
 sessions: dict[str, SocraticSession] = {}
@@ -736,6 +746,7 @@ async def generate_summary(session_id: str, provider: LLMProvider | None, config
     }
 
     if not provider or not _can_use_llm(config):
+        session.summary = fallback
         return fallback
 
     prompt = f"""Generate a Research Plan Summary from this Socratic mentoring transcript.
@@ -756,9 +767,11 @@ Convergence: {session.convergence}
         parsed["insights"] = parsed.get("insights") or session.insights
         parsed["convergence"] = session.convergence
         parsed["turn_count"] = session.turn_count
+        session.summary = parsed
         return parsed
     except Exception as exc:
         logger.warning("socratic_agent.py operation failed: {}", exc)
+        session.summary = fallback
         return fallback
 
 
@@ -773,4 +786,142 @@ def _session_payload(session: SocraticSession) -> dict:
         "intent": session.intent,
         "is_active": session.is_active,
         "suggest_full_mode": session.no_insight_turns > 10,
+    }
+
+
+def _session_title(session: SocraticSession) -> str:
+    if session.title.strip():
+        return session.title.strip()[:255]
+    if session.summary:
+        research_question = str(session.summary.get("research_question") or "").strip()
+        if research_question:
+            return research_question[:255]
+    first_user_message = next(
+        (str(message.get("content") or "").strip() for message in session.messages if message.get("role") == "user"),
+        "",
+    )
+    return (first_user_message or "Socratic Session")[:255]
+
+
+def _ensure_project(db: Session, project_id: str | None) -> str | None:
+    if not project_id:
+        return None
+    if db.get(Project, project_id) is None:
+        db.add(Project(
+            id=project_id,
+            name="Default" if project_id == "default" else project_id,
+            description="Auto-created project for Socratic history.",
+        ))
+        db.flush()
+    return project_id
+
+
+def save_to_db(session_id: str, db: Session, *, end_session: bool = False) -> SocraticSessionModel:
+    """Persist one in-memory session, replacing its message and insight snapshots."""
+    session = sessions.get(session_id)
+    if session is None:
+        raise KeyError(session_id)
+    if end_session:
+        session.is_active = False
+
+    record = db.get(SocraticSessionModel, session_id)
+    if record is None:
+        record = SocraticSessionModel(id=session_id)
+        db.add(record)
+
+    record.project_id = _ensure_project(db, session.project_id)
+    record.title = _session_title(session)
+    record.updated_at = datetime.now(timezone.utc)
+    record.intent = session.intent
+    record.layer = session.layer
+    record.turn_count = session.turn_count
+    record.is_converged = not session.is_active
+    record.summary_json = session.summary
+    record.convergence_json = dict(session.convergence)
+    record.insights_list = list(session.insights)
+    record.layer_turns_json = {str(key): value for key, value in session.layer_turns.items()}
+    record.rq_history_json = list(session.rq_history)
+    record.active_turn_index = len(session.messages) - 1 if session.is_active and session.messages else None
+
+    db.query(SocraticMessageModel).filter(SocraticMessageModel.session_id == session_id).delete(synchronize_session=False)
+    db.query(SocraticInsightModel).filter(SocraticInsightModel.session_id == session_id).delete(synchronize_session=False)
+    for index, message in enumerate(session.messages):
+        role = str(message.get("role") or "")
+        message_content = str(message.get("content") or "")
+        if role not in {"user", "assistant"} or not message_content:
+            continue
+        db.add(SocraticMessageModel(
+            session_id=session_id,
+            role=role,
+            content=message_content,
+            turn_index=index,
+        ))
+    for index, insight in enumerate(session.insights):
+        turn_index = next(
+            (
+                message_index
+                for message_index, message in enumerate(session.messages)
+                if str(insight) in str(message.get("content") or "")
+            ),
+            index,
+        )
+        db.add(SocraticInsightModel(
+            session_id=session_id,
+            content=str(insight),
+            turn_index=turn_index,
+        ))
+
+    db.commit()
+    db.refresh(record)
+    session.title = record.title or ""
+    return record
+
+
+def load_from_db(session_id: str, db: Session) -> SocraticSession | None:
+    """Restore a persisted session into memory as a read-only history snapshot."""
+    record = db.get(SocraticSessionModel, session_id)
+    if record is None:
+        return None
+    message_rows = (
+        db.query(SocraticMessageModel)
+        .filter(SocraticMessageModel.session_id == session_id)
+        .order_by(SocraticMessageModel.turn_index.asc())
+        .all()
+    )
+    insight_rows = (
+        db.query(SocraticInsightModel)
+        .filter(SocraticInsightModel.session_id == session_id)
+        .order_by(SocraticInsightModel.turn_index.asc())
+        .all()
+    )
+    layer_turns = {
+        int(key): int(value)
+        for key, value in (record.layer_turns_json or {}).items()
+        if str(key).isdigit()
+    }
+    session = SocraticSession(
+        session_id=record.id,
+        project_id=record.project_id or "default",
+        layer=record.layer or 1,
+        turn_count=record.turn_count or 0,
+        insights=list(record.insights_list or [row.content for row in insight_rows]),
+        intent=record.intent or "exploratory",
+        convergence=dict(record.convergence_json or {}),
+        layer_turns=layer_turns or {i: 0 for i in range(1, 6)},
+        is_active=False,
+        messages=[{"role": row.role, "content": row.content} for row in message_rows],
+        rq_history=list(record.rq_history_json or []),
+        title=record.title or "",
+        summary=dict(record.summary_json) if isinstance(record.summary_json, dict) else None,
+    )
+    sessions[session_id] = session
+    return session
+
+
+def session_history_payload(session: SocraticSession) -> dict:
+    return {
+        **_session_payload(session),
+        "title": _session_title(session),
+        "messages": list(session.messages),
+        "summary": session.summary,
     }

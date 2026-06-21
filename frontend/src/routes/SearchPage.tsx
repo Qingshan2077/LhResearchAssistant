@@ -19,6 +19,7 @@ import clsx from "clsx";
 import { t } from "../i18n";
 import { api, apiUrl, type ComparisonTable, type Paper } from "../lib/api";
 import { usePaperStore } from "../stores/paperStore";
+import { useSearchPageStore } from "../stores/searchPageStore";
 import { useSettingsStore } from "../stores/settingsStore";
 
 const SOURCE_OPTIONS = [
@@ -31,9 +32,7 @@ export default function SearchPage() {
   const language = useSettingsStore((s) => s.language);
   const { papers, loading, error, search, searchQuery, totalCount, sourceBreakdown, sourceErrors } =
     usePaperStore();
-  const [query, setQuery] = useState("");
-  const [sources, setSources] = useState<string[]>(SOURCE_OPTIONS.map((s) => s.id));
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const { query, sources, selectedIds, setQuery, setSources, setSelectedIds } = useSearchPageStore();
   const [generatingReview, setGeneratingReview] = useState(false);
   const [reviewContent, setReviewContent] = useState("");
   const [askQuestion, setAskQuestion] = useState("");

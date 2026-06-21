@@ -6,16 +6,21 @@ import {
   Check,
   FlaskConical,
   GitCompare,
+  History,
   Lightbulb,
   Loader2,
+  Plus,
+  Save,
   Search,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
-import { api, apiUrl, type Paper } from "../lib/api";
+import { api, apiUrl, type IdeaHistoryDetail, type IdeaHistoryItem, type Paper } from "../lib/api";
 import { t } from "../i18n";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useSocraticIdeaBridgeStore } from "../stores/socraticIdeaBridgeStore";
 
 type IdeaMode = "gap_analysis" | "cross_domain" | "trend_based";
 type GenerationPhase = "generating" | "evaluating" | "done";
@@ -44,13 +49,46 @@ export default function IdeaPage() {
   const [domainA, setDomainA] = useState("");
   const [domainB, setDomainB] = useState("");
   const [customPrompt, setCustomPrompt] = useState("");
+  const [socraticContextDraft, setSocraticContextDraft] = useState("");
   const [search, setSearch] = useState("");
   const [generating, setGenerating] = useState(false);
   const [phase, setPhase] = useState<GenerationPhase>("done");
   const [streamStatus, setStreamStatus] = useState("");
   const [content, setContent] = useState("");
   const [evaluations, setEvaluations] = useState<Record<string, Evaluation>>({});
+  const [sidebarTab, setSidebarTab] = useState<"papers" | "history">("papers");
+  const [historyList, setHistoryList] = useState<IdeaHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [savingHistory, setSavingHistory] = useState(false);
+  const [historySaved, setHistorySaved] = useState(false);
+  const [viewingHistoryId, setViewingHistoryId] = useState<string | null>(null);
   const language = useSettingsStore((s) => s.language);
+  const {
+    availableSessions,
+    loading: socraticLoading,
+    error: socraticError,
+    selectedSessionId,
+    selectedSessionSummary,
+    useSocraticContext,
+    fetchSocraticSessions,
+    selectSession,
+    clearSelection,
+    setUseSocraticContext,
+    buildContextPrompt,
+  } = useSocraticIdeaBridgeStore();
+
+  useEffect(() => {
+    setSocraticContextDraft(
+      useSocraticContext && selectedSessionSummary ? buildContextPrompt() : ""
+    );
+  }, [buildContextPrompt, selectedSessionSummary, useSocraticContext]);
+
+  const effectiveCustomPrompt = useMemo(() => {
+    const context = useSocraticContext ? socraticContextDraft.trim() : "";
+    if (!context) return customPrompt;
+    if (!customPrompt.trim()) return context;
+    return `${customPrompt.trimEnd()}\n\n---\n\n${context}`;
+  }, [customPrompt, socraticContextDraft, useSocraticContext]);
 
   useEffect(() => {
     api
@@ -58,8 +96,88 @@ export default function IdeaPage() {
       .json<{ items: Paper[] }>()
       .then((resp) => setPapers(resp.items))
       .catch(() => setPapers([]));
+    void refreshIdeaHistory();
+    void fetchSocraticSessions();
   }, []);
 
+  async function refreshIdeaHistory() {
+    setHistoryLoading(true);
+    try {
+      const rows = await api
+        .get("ideas/history", { searchParams: { project_id: "default" } })
+        .json<IdeaHistoryItem[]>();
+      setHistoryList(rows);
+    } catch {
+      setHistoryList([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  const saveIdeaHistory = async () => {
+    if (!content.trim() || historySaved || viewingHistoryId) return;
+    setSavingHistory(true);
+    try {
+      await api.post("ideas/history/save", {
+        json: {
+          project_id: "default",
+          mode,
+          paper_ids: Array.from(selectedIds),
+          custom_prompt: effectiveCustomPrompt,
+          domain_a: domainA,
+          domain_b: domainB,
+          generated_content: content,
+          evaluations: Object.values(evaluations),
+        },
+      });
+      setHistorySaved(true);
+      await refreshIdeaHistory();
+    } finally {
+      setSavingHistory(false);
+    }
+  };
+
+  const openIdeaHistory = async (historyId: string) => {
+    const detail = await api.get(`ideas/history/${historyId}`).json<IdeaHistoryDetail>();
+    setUseSocraticContext(false);
+    setViewingHistoryId(detail.id);
+    setMode(detail.mode as IdeaMode);
+    setSelectedIds(new Set(detail.paper_ids || []));
+    setCustomPrompt(detail.custom_prompt || "");
+    setDomainA(detail.domain_a || "");
+    setDomainB(detail.domain_b || "");
+    setContent(detail.generated_content || "");
+    setEvaluations(
+      (detail.evaluations || []).reduce<Record<string, Evaluation>>((result, value) => {
+        const evaluation = value as Evaluation;
+        if (evaluation.idea_title) result[evaluation.idea_title] = evaluation;
+        return result;
+      }, {})
+    );
+    setPhase("done");
+    setStreamStatus("");
+  };
+
+  const deleteIdeaHistory = async (historyId: string) => {
+    if (!window.confirm(t(language, "deleteIdeaHistoryConfirm"))) return;
+    await api.delete(`ideas/history/${historyId}`);
+    if (viewingHistoryId === historyId) startNewIdea();
+    await refreshIdeaHistory();
+  };
+
+  const startNewIdea = () => {
+    setUseSocraticContext(false);
+    setViewingHistoryId(null);
+    setMode("gap_analysis");
+    setDomainA("");
+    setDomainB("");
+    setCustomPrompt("");
+    setContent("");
+    setEvaluations({});
+    setSelectedIds(new Set());
+    setHistorySaved(false);
+    setSidebarTab("papers");
+  };
   const filteredPapers = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     if (!keyword) return papers;
@@ -74,6 +192,7 @@ export default function IdeaPage() {
   const ideaCards = useMemo(() => parseIdeaCards(content), [content]);
 
   const togglePaper = (paperId: string) => {
+    if (viewingHistoryId) return;
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(paperId)) next.delete(paperId);
@@ -83,6 +202,8 @@ export default function IdeaPage() {
   };
 
   const generateIdeas = async () => {
+    if (viewingHistoryId) return;
+    setHistorySaved(false);
     setGenerating(true);
     setPhase("generating");
     setStreamStatus("");
@@ -97,7 +218,7 @@ export default function IdeaPage() {
           project_id: "default",
           paper_ids: Array.from(selectedIds),
           mode,
-          custom_prompt: customPrompt,
+          custom_prompt: effectiveCustomPrompt,
           domain_a: domainA,
           domain_b: domainB,
         }),
@@ -176,7 +297,7 @@ export default function IdeaPage() {
             </button>
             <button
               onClick={generateIdeas}
-              disabled={generating}
+              disabled={generating || Boolean(viewingHistoryId)}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-foreground px-4 text-sm font-medium text-background disabled:opacity-50"
             >
               {generating ? <Loader2 size={17} className="animate-spin" /> : <FlaskConical size={17} />}
@@ -188,6 +309,12 @@ export default function IdeaPage() {
 
       <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
         <aside className="flex min-h-0 flex-col gap-4 overflow-hidden">
+          <div className="grid grid-cols-2 rounded-lg border border-border bg-card p-1">
+            <button onClick={() => setSidebarTab("papers")} className={clsx("rounded-md px-3 py-2 text-xs", sidebarTab === "papers" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>{t(language, "paperSelection")}</button>
+            <button onClick={() => setSidebarTab("history")} className={clsx("rounded-md px-3 py-2 text-xs", sidebarTab === "history" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>{t(language, "historyRecords")}</button>
+          </div>
+          {sidebarTab === "papers" ? (
+            <>
           <section className="rounded-lg border border-border bg-card p-4">
             <div className="mb-3 text-sm font-medium">{t(language, "ideaMode")}</div>
             <div className="grid gap-2">
@@ -195,6 +322,7 @@ export default function IdeaPage() {
                 <button
                   key={id}
                   onClick={() => setMode(id)}
+                  disabled={Boolean(viewingHistoryId)}
                   className={clsx(
                     "flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition",
                     mode === id
@@ -213,12 +341,14 @@ export default function IdeaPage() {
                 <input
                   value={domainA}
                   onChange={(e) => setDomainA(e.target.value)}
+                  disabled={Boolean(viewingHistoryId)}
                   placeholder={t(language, "ideaDomainA")}
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
                 <input
                   value={domainB}
                   onChange={(e) => setDomainB(e.target.value)}
+                  disabled={Boolean(viewingHistoryId)}
                   placeholder={t(language, "ideaDomainB")}
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
@@ -228,9 +358,112 @@ export default function IdeaPage() {
             <textarea
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
+              disabled={Boolean(viewingHistoryId)}
               placeholder={t(language, "ideaPrefPlaceholder")}
               className="mt-3 h-24 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
+
+            <div className="mt-3 rounded-md border border-violet-400/30 bg-violet-400/5 p-3">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={useSocraticContext}
+                  onChange={(event) => setUseSocraticContext(event.target.checked)}
+                  disabled={Boolean(viewingHistoryId)}
+                  className="h-4 w-4 rounded border-border accent-violet-500"
+                />
+                {t(language, "socraticBridgeTitle")}
+              </label>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {t(language, "socraticBridgeHelp")}
+              </p>
+
+              {useSocraticContext && (
+                <div className="mt-3 space-y-2">
+                  {!selectedSessionId && (
+                    <select
+                      value=""
+                      onChange={(event) => void selectSession(event.target.value)}
+                      disabled={socraticLoading || availableSessions.length === 0}
+                      className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none"
+                    >
+                      <option value="" disabled>
+                        {socraticLoading
+                          ? t(language, "loadingHistory")
+                          : availableSessions.length > 0
+                            ? t(language, "selectSocraticSession")
+                            : t(language, "noSocraticHistory")}
+                      </option>
+                      {availableSessions.map((session) => (
+                        <option key={session.id} value={session.id}>
+                          {session.title || `Socratic ${formatHistoryDate(session.created_at, language)}`} · {session.turn_count} {t(language, "socraticTurns")} · {formatHistoryDate(session.created_at, language)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  {selectedSessionId && socraticLoading && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 size={13} className="animate-spin" />
+                      {t(language, "loadingHistory")}
+                    </div>
+                  )}
+
+                  {selectedSessionId && !socraticLoading && !selectedSessionSummary && (
+                    <div className="rounded-md border border-amber-400/30 bg-amber-400/10 p-2 text-xs text-amber-700 dark:text-amber-300">
+                      {t(language, "socraticNoSummary")}
+                    </div>
+                  )}
+
+                  {selectedSessionSummary && (
+                    <div className="space-y-2">
+                      {selectedSessionSummary.research_question && (
+                        <div className="rounded-md bg-background/70 p-2">
+                          <div className="text-[11px] font-medium text-muted-foreground">{t(language, "socraticResearchQuestion")}</div>
+                          <div className="mt-0.5 text-xs">{selectedSessionSummary.research_question}</div>
+                        </div>
+                      )}
+                      {selectedSessionSummary.insights && selectedSessionSummary.insights.length > 0 && (
+                        <div className="rounded-md bg-background/70 p-2">
+                          <div className="text-[11px] font-medium text-muted-foreground">{t(language, "socraticInsights")}</div>
+                          <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs">
+                            {selectedSessionSummary.insights.slice(0, 3).map((insight, index) => (
+                              <li key={`${index}-${insight}`} className="truncate">{insight}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {selectedSessionSummary.methodology && (
+                        <div className="rounded-md bg-background/70 p-2">
+                          <div className="text-[11px] font-medium text-muted-foreground">{t(language, "socraticMethodology")}</div>
+                          <div className="mt-0.5 line-clamp-3 text-xs">{selectedSessionSummary.methodology}</div>
+                        </div>
+                      )}
+                      <label className="block">
+                        <span className="text-[11px] font-medium text-muted-foreground">{t(language, "socraticContextPrompt")}</span>
+                        <textarea
+                          value={socraticContextDraft}
+                          onChange={(event) => setSocraticContextDraft(event.target.value)}
+                          rows={8}
+                          className="mt-1 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      </label>
+                    </div>
+                  )}
+
+                  {selectedSessionId && !socraticLoading && (
+                    <button
+                      type="button"
+                      onClick={clearSelection}
+                      className="text-xs text-violet-600 hover:text-violet-500 dark:text-violet-400"
+                    >
+                      {t(language, "changeSocraticSession")}
+                    </button>
+                  )}
+                  {socraticError && <div className="text-xs text-destructive">{socraticError}</div>}
+                </div>
+              )}
+            </div>
           </section>
 
           <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
@@ -259,6 +492,7 @@ export default function IdeaPage() {
                   <button
                     key={paper.id}
                     onClick={() => togglePaper(paper.id)}
+                    disabled={Boolean(viewingHistoryId)}
                     className={clsx(
                       "mb-2 flex w-full items-start gap-2 rounded-md border p-3 text-left transition",
                       selected ? "border-amber-400 bg-amber-400/10" : "border-border hover:bg-muted"
@@ -288,13 +522,44 @@ export default function IdeaPage() {
               )}
             </div>
           </section>
+            </>
+          ) : (
+            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                <div className="flex items-center gap-2 text-sm font-medium"><History size={15} />{t(language, "ideaHistory")}</div>
+                <button onClick={startNewIdea} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><Plus size={13} />{t(language, "newIdea")}</button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto p-2">
+                {historyLoading && <div className="p-4 text-center text-xs text-muted-foreground">{t(language, "loadingHistory")}</div>}
+                {!historyLoading && historyList.length === 0 && <div className="p-6 text-center text-xs text-muted-foreground">{t(language, "noHistoryRecords")}</div>}
+                {historyList.map((item) => (
+                  <div key={item.id} className={clsx("mb-2 flex items-start gap-2 rounded-md border p-3", viewingHistoryId === item.id ? "border-amber-400 bg-amber-400/10" : "border-border")}>
+                    <button onClick={() => void openIdeaHistory(item.id)} className="min-w-0 flex-1 text-left">
+                      <div className="truncate text-sm font-medium">{item.title}</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">{item.mode} · {formatHistoryDate(item.created_at, language)}</div>
+                    </button>
+                    <button onClick={() => void deleteIdeaHistory(item.id)} className="rounded p-1 text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </aside>
 
         <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <div className="text-sm font-medium">{t(language, "ideaGenResult")}</div>
-            <div className="text-xs text-muted-foreground">
-              {phase === "evaluating" ? t(language, "evaluating") : `${ideaCards.length || 0} ${t(language, "ideas")}`}
+            <div className="text-sm font-medium">{t(language, "ideaGenResult")}{viewingHistoryId ? ` · ${t(language, "historyReadonly")}` : ""}</div>
+            <div className="flex items-center gap-3">
+              {content && !viewingHistoryId && (
+                <button onClick={() => void saveIdeaHistory()} disabled={savingHistory || historySaved} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-muted disabled:opacity-50">
+                  {savingHistory ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                  {historySaved ? t(language, "savedToHistory") : t(language, "saveToHistory")}
+                </button>
+              )}
+              {viewingHistoryId && <button onClick={startNewIdea} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-muted"><Plus size={13} />{t(language, "newIdea")}</button>}
+              <div className="text-xs text-muted-foreground">
+                {phase === "evaluating" ? t(language, "evaluating") : `${ideaCards.length || 0} ${t(language, "ideas")}`}
+              </div>
             </div>
           </div>
           <div className="h-full overflow-auto p-4">
@@ -414,4 +679,14 @@ function renderMarkdown(text: string): string {
     .replace(/(<li>.*<\/li>\n?)+/g, "<ul>$&</ul>")
     .replace(/`(.+?)`/g, "<code>$1</code>")
     .replace(/\n/g, "<br/>");
+}
+
+function formatHistoryDate(value: string, language: "en" | "zh") {
+  if (!value) return "-";
+  return new Date(value).toLocaleString(language === "zh" ? "zh-CN" : "en", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }

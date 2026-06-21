@@ -18,6 +18,7 @@ from app.database import engine, get_db
 from app.database.chroma_client import collection
 from app.database.sqlite import (
     AppSetting,
+    IdeaHistory,
     LLMProvider as LLMProviderModel,
     LLMUsage,
     MindMapNode,
@@ -25,6 +26,9 @@ from app.database.sqlite import (
     PaperRelation,
     Project,
     SearchHistory,
+    SocraticInsight,
+    SocraticMessage,
+    SocraticSession,
     WritingProject,
 )
 from app.llm.router import DEFAULT_BASE_URLS, DEFAULT_MODELS, get_provider_by_id
@@ -437,6 +441,10 @@ def clear_all_data(db: Session = Depends(get_db)):
     """Securely remove user research data while preserving provider settings."""
     try:
         for model in (
+            SocraticInsight,
+            SocraticMessage,
+            SocraticSession,
+            IdeaHistory,
             MindMapNode,
             PaperRelation,
             SearchHistory,

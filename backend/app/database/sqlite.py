@@ -217,3 +217,60 @@ class SearchHistory(Base):
     filters = Column(JSON, default=dict)
     result_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=_utcnow)
+
+# ── Idea 与 Socratic 历史 ─────────────────────────
+class SocraticSession(Base):
+    __tablename__ = "socratic_sessions"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=True, index=True)
+    title = Column(String(255), default="")
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+    intent = Column(String(32), default="exploratory")
+    layer = Column(Integer, default=1)
+    turn_count = Column(Integer, default=0)
+    is_converged = Column(Boolean, default=False)
+    summary_json = Column(JSON, nullable=True)
+    convergence_json = Column(JSON, nullable=True)
+    insights_list = Column(JSON, nullable=True)
+    layer_turns_json = Column(JSON, nullable=True)
+    rq_history_json = Column(JSON, nullable=True)
+    active_turn_index = Column(Integer, nullable=True)
+
+
+class SocraticMessage(Base):
+    __tablename__ = "socratic_messages"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    session_id = Column(String(36), ForeignKey("socratic_sessions.id"), nullable=False, index=True)
+    role = Column(String(16), nullable=False)
+    content = Column(Text, nullable=False)
+    turn_index = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)
+
+
+class SocraticInsight(Base):
+    __tablename__ = "socratic_insights"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    session_id = Column(String(36), ForeignKey("socratic_sessions.id"), nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    turn_index = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)
+
+
+class IdeaHistory(Base):
+    __tablename__ = "idea_history"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=True, index=True)
+    title = Column(String(255), default="")
+    created_at = Column(DateTime, default=_utcnow)
+    mode = Column(String(32), nullable=False)
+    paper_ids = Column(JSON, default=list)
+    custom_prompt = Column(Text, default="")
+    domain_a = Column(String(128), default="")
+    domain_b = Column(String(128), default="")
+    generated_content = Column(Text, default="")
+    evaluations = Column(JSON, default=list)

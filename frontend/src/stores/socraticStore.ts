@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, websocketUrl } from "../lib/api";
+import { api, websocketUrl, type SocraticHistoryItem } from "../lib/api";
 
 export type SocraticMessage = {
   role: "user" | "assistant";
@@ -18,6 +18,20 @@ export type ResearchPlan = {
   [key: string]: unknown;
 };
 
+type SocraticHistoryDetail = {
+  session_id: string;
+  title: string;
+  messages: SocraticMessage[];
+  layer: number;
+  layer_name: string;
+  insights: string[];
+  convergence: Record<string, boolean>;
+  turn_count: number;
+  intent: string;
+  is_active: boolean;
+  summary: ResearchPlan | null;
+};
+
 interface SocraticState {
   sessionId: string | null;
   socket: WebSocket | null;
@@ -28,14 +42,24 @@ interface SocraticState {
   convergence: Record<string, boolean>;
   turnCount: number;
   isActive: boolean;
+  historyView: boolean;
   connecting: boolean;
+  historyLoading: boolean;
   error: string | null;
   summary: ResearchPlan | null;
+  historyList: SocraticHistoryItem[];
   createSession: (projectId: string, initialMessage?: string) => Promise<void>;
   sendMessage: (text: string) => Promise<void>;
   getSummary: () => Promise<ResearchPlan>;
-  closeSession: () => void;
+  saveSession: (endSession?: boolean, releaseSession?: boolean) => Promise<void>;
+  fetchHistory: (projectId?: string) => Promise<void>;
+  loadHistory: (sessionId: string) => Promise<void>;
+  deleteHistory: (sessionId: string) => Promise<void>;
+  closeSession: (endSession?: boolean) => Promise<void>;
+  resetSession: () => void;
 }
+
+const EMPTY_CONVERGENCE = { s1: false, s2: false, s3: false, s4: false, s5: false };
 
 function socraticWsUrl(sessionId: string) {
   return websocketUrl(`ideas/socratic/${sessionId}`);
@@ -48,16 +72,31 @@ export const useSocraticStore = create<SocraticState>((set, get) => ({
   currentLayer: 1,
   layerName: "Problem Framing",
   insights: [],
-  convergence: { s1: false, s2: false, s3: false, s4: false, s5: false },
+  convergence: { ...EMPTY_CONVERGENCE },
   turnCount: 0,
   isActive: false,
+  historyView: false,
   connecting: false,
+  historyLoading: false,
   error: null,
   summary: null,
+  historyList: [],
 
   createSession: async (projectId, initialMessage = "") => {
+    if (get().sessionId && get().isActive) await get().saveSession(true, true);
     get().socket?.close();
-    set({ connecting: true, error: null, messages: [], summary: null });
+    set({
+      connecting: true,
+      error: null,
+      messages: [],
+      summary: null,
+      historyView: false,
+      currentLayer: 1,
+      layerName: "Problem Framing",
+      insights: [],
+      convergence: { ...EMPTY_CONVERGENCE },
+      turnCount: 0,
+    });
     try {
       const resp = await api
         .post("ideas/socratic/create", {
@@ -88,12 +127,10 @@ export const useSocraticStore = create<SocraticState>((set, get) => ({
             }));
             return;
           }
-
           if (data.type === "error") {
             set({ error: data.content || "Socratic session error", connecting: false });
             return;
           }
-
           set((state) => ({
             messages: [...state.messages, { role: "assistant", content: data.content || "", type: data.type }],
             currentLayer: data.layer || state.currentLayer,
@@ -104,13 +141,18 @@ export const useSocraticStore = create<SocraticState>((set, get) => ({
             isActive: data.is_active ?? state.isActive,
             summary: data.summary || state.summary,
           }));
+          if (data.type === "converged") void get().fetchHistory();
         } catch {
           set({ error: "Failed to parse Socratic response" });
         }
       };
 
       socket.onerror = () => set({ error: "WebSocket connection failed", connecting: false });
-      socket.onclose = () => set((state) => ({ isActive: false, connecting: false, socket: state.socket === socket ? null : state.socket }));
+      socket.onclose = () => set((state) => ({
+        isActive: false,
+        connecting: false,
+        socket: state.socket === socket ? null : state.socket,
+      }));
 
       set({ sessionId: resp.session_id, socket, isActive: true });
     } catch (error) {
@@ -131,11 +173,92 @@ export const useSocraticStore = create<SocraticState>((set, get) => ({
     if (!sessionId) return {};
     const summary = await api.get(`ideas/socratic/${sessionId}/summary`).json<ResearchPlan>();
     set({ summary });
+    await get().fetchHistory();
     return summary;
   },
 
-  closeSession: () => {
+  saveSession: async (endSession = false, releaseSession = false) => {
+    const sessionId = get().sessionId;
+    if (!sessionId || get().historyView) return;
+    await api.post(`ideas/socratic/${sessionId}/save`, { json: { end_session: endSession, release_session: releaseSession } });
+    if (endSession) set({ isActive: false });
+    await get().fetchHistory();
+  },
+
+  fetchHistory: async (projectId = "default") => {
+    set({ historyLoading: true });
+    try {
+      const historyList = await api
+        .get("ideas/socratic/history", { searchParams: { project_id: projectId } })
+        .json<SocraticHistoryItem[]>();
+      set({ historyList });
+    } catch (error) {
+      set({ error: String(error) });
+    } finally {
+      set({ historyLoading: false });
+    }
+  },
+
+  loadHistory: async (sessionId) => {
+    if (get().sessionId && get().isActive && !get().historyView) await get().saveSession(true, true);
+    get().socket?.close();
+    set({ historyLoading: true, error: null });
+    try {
+      const detail = await api
+        .get(`ideas/socratic/history/${sessionId}`)
+        .json<SocraticHistoryDetail>();
+      set({
+        sessionId: detail.session_id,
+        socket: null,
+        messages: detail.messages || [],
+        currentLayer: detail.layer || 1,
+        layerName: detail.layer_name || "Problem Framing",
+        insights: detail.insights || [],
+        convergence: detail.convergence || { ...EMPTY_CONVERGENCE },
+        turnCount: detail.turn_count || 0,
+        isActive: false,
+        historyView: true,
+        summary: detail.summary,
+      });
+    } finally {
+      set({ historyLoading: false });
+    }
+  },
+
+  deleteHistory: async (sessionId) => {
+    await api.delete(`ideas/socratic/history/${sessionId}`);
+    if (get().sessionId === sessionId) get().resetSession();
+    await get().fetchHistory();
+  },
+
+  closeSession: async (endSession = true) => {
+    if (get().sessionId && get().isActive && !get().historyView) {
+      try {
+        await get().saveSession(endSession, endSession);
+      } catch (error) {
+        set({ error: String(error) });
+      }
+    }
     get().socket?.close();
     set({ socket: null, isActive: false });
+  },
+
+  resetSession: () => {
+    get().socket?.close();
+    set({
+      sessionId: null,
+      socket: null,
+      messages: [],
+      currentLayer: 1,
+      layerName: "Problem Framing",
+      insights: [],
+      convergence: { ...EMPTY_CONVERGENCE },
+      turnCount: 0,
+      isActive: false,
+      historyView: false,
+      connecting: false,
+      error: null,
+      summary: null,
+    });
   },
 }));

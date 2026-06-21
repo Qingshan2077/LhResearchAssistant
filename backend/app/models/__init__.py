@@ -127,6 +127,23 @@ class IdeaEvaluateRequest(BaseModel):
     context_paper_ids: list[str] = Field(default_factory=list)
 
 
+class IdeaHistorySaveRequest(BaseModel):
+    project_id: str = "default"
+    title: str = ""
+    mode: str = "gap_analysis"
+    paper_ids: list[str] = Field(default_factory=list)
+    custom_prompt: str = ""
+    domain_a: str = ""
+    domain_b: str = ""
+    generated_content: str = ""
+    evaluations: list[dict] = Field(default_factory=list)
+
+
+class SocraticSaveRequest(BaseModel):
+    end_session: bool = False
+    release_session: bool = False
+
+
 # ── Knowledge ────────────────────────────────────
 class KnowledgeQuery(BaseModel):
     project_id: str

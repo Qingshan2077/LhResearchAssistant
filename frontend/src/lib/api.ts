@@ -91,6 +91,35 @@ export type SemanticScholarConfig = {
   api_key: string;
 };
 
+export type SocraticHistoryItem = {
+  id: string;
+  title: string;
+  turn_count: number;
+  layer: number;
+  insights_count: number;
+  has_summary: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type IdeaHistoryItem = {
+  id: string;
+  project_id: string | null;
+  title: string;
+  created_at: string;
+  mode: string;
+  paper_ids: string[];
+  custom_prompt: string;
+  domain_a: string;
+  domain_b: string;
+  evaluations_count: number;
+};
+
+export type IdeaHistoryDetail = IdeaHistoryItem & {
+  generated_content: string;
+  evaluations: Array<Record<string, unknown>>;
+};
+
 export type LLMProvider = {
   id: string;
   name: string;

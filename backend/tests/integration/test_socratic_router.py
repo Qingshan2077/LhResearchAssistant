@@ -43,3 +43,43 @@ def test_missing_socratic_websocket_session_returns_error(client):
         message = websocket.receive_json()
     assert message["type"] == "error"
     assert "not found" in message["content"].lower()
+
+def test_socratic_history_round_trip(client):
+    from app.agents.socratic_agent import SocraticSession, sessions
+
+    session_id = "history-session"
+    sessions[session_id] = SocraticSession(
+        session_id=session_id,
+        project_id="default",
+        layer=2,
+        turn_count=1,
+        insights=["A useful insight"],
+        messages=[
+            {"role": "user", "content": "How should I frame this problem?"},
+            {"role": "assistant", "content": "What boundary matters most?"},
+        ],
+        summary={"research_question": "A test research question?"},
+    )
+    try:
+        saved = client.post(
+            f"/api/v1/ideas/socratic/{session_id}/save",
+            json={"end_session": False},
+        )
+        assert saved.status_code == 200
+
+        history = client.get(
+            "/api/v1/ideas/socratic/history",
+            params={"project_id": "default"},
+        )
+        assert history.status_code == 200
+        assert history.json()[0]["id"] == session_id
+
+        detail = client.get(f"/api/v1/ideas/socratic/history/{session_id}")
+        assert detail.status_code == 200
+        assert detail.json()["is_active"] is False
+        assert len(detail.json()["messages"]) == 2
+
+        deleted = client.delete(f"/api/v1/ideas/socratic/history/{session_id}")
+        assert deleted.status_code == 200
+    finally:
+        sessions.pop(session_id, None)
