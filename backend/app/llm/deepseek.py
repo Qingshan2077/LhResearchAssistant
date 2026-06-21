@@ -30,7 +30,20 @@ class DeepSeekProvider(LLMProvider):
             temperature=config.temperature,
         )
         capture_response_usage(resp.usage)
-        return resp.choices[0].message.content or ""
+        message = resp.choices[0].message
+        if message.content:
+            return message.content
+
+        reasoning_content = getattr(message, "reasoning_content", None)
+        if reasoning_content is None:
+            model_extra = getattr(message, "model_extra", None)
+            if isinstance(model_extra, dict):
+                reasoning_content = model_extra.get("reasoning_content")
+        if reasoning_content is None:
+            model_dump = getattr(message, "model_dump", None)
+            if callable(model_dump):
+                reasoning_content = model_dump().get("reasoning_content")
+        return str(reasoning_content or "")
 
     async def chat_stream(self, messages: list[ChatMessage], config: LLMConfig) -> AsyncIterator[str]:
         client = await self._client(config)

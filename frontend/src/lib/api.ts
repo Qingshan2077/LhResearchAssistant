@@ -76,6 +76,16 @@ export type SearchResponse = {
   source_errors: Record<string, string>;
 };
 
+export type PaperCategory = {
+  name: string;
+  paper_ids: string[];
+};
+
+export type CategorizeResponse = {
+  groups: PaperCategory[];
+  uncategorized: string[];
+};
+
 export type ProxyConfig = {
   enabled: boolean;
   url: string;

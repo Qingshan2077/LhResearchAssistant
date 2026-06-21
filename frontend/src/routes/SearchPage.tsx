@@ -32,7 +32,30 @@ export default function SearchPage() {
   const language = useSettingsStore((s) => s.language);
   const { papers, loading, error, search, searchQuery, totalCount, sourceBreakdown, sourceErrors } =
     usePaperStore();
-  const { query, sources, selectedIds, setQuery, setSources, setSelectedIds } = useSearchPageStore();
+  const {
+    query,
+    sources,
+    selectedIds,
+    categories,
+    uncategorizedIds,
+    activeCategory,
+    categorizing,
+    categorizationEnabled,
+    yearRange,
+    sourceFilter,
+    textFilter,
+    setQuery,
+    setSources,
+    setSelectedIds,
+    categorizeResults,
+    setActiveCategory,
+    setYearRange,
+    setSourceFilter,
+    setTextFilter,
+    setCategorizationEnabled,
+    clearFilters,
+    resetResultView,
+  } = useSearchPageStore();
   const [generatingReview, setGeneratingReview] = useState(false);
   const [reviewContent, setReviewContent] = useState("");
   const [askQuestion, setAskQuestion] = useState("");
@@ -48,6 +71,49 @@ export default function SearchPage() {
     () => papers.filter((paper) => selectedIds.has(paper.id)),
     [papers, selectedIds]
   );
+  const categoryMap = useMemo(() => {
+    const result: Record<string, string> = {};
+    for (const category of categories) {
+      for (const paperId of category.paper_ids) result[paperId] = category.name;
+    }
+    return result;
+  }, [categories]);
+  const availableYears = useMemo(
+    () => Array.from(new Set(
+      papers.map((paper) => paper.year).filter((year): year is number => typeof year === "number")
+    )).sort((left, right) => right - left),
+    [papers]
+  );
+  const filteredPapers = useMemo(() => {
+    let result = papers;
+    if (activeCategory === "__other__") {
+      const ids = new Set(uncategorizedIds);
+      result = result.filter((paper) => ids.has(paper.id));
+    } else if (activeCategory) {
+      const category = categories.find((item) => item.name === activeCategory);
+      if (category) {
+        const ids = new Set(category.paper_ids);
+        result = result.filter((paper) => ids.has(paper.id));
+      }
+    }
+    if (sourceFilter) result = result.filter((paper) => paper.source === sourceFilter);
+    if (yearRange) {
+      result = result.filter((paper) => (
+        typeof paper.year === "number" && paper.year >= yearRange[0] && paper.year <= yearRange[1]
+      ));
+    }
+    const keyword = textFilter.trim().toLowerCase();
+    if (keyword) {
+      result = result.filter((paper) => [
+        paper.title,
+        paper.abstract,
+        paper.authors?.join(" "),
+        paper.venue,
+        paper.keywords?.join(" "),
+      ].join(" ").toLowerCase().includes(keyword));
+    }
+    return result;
+  }, [activeCategory, categories, papers, sourceFilter, textFilter, uncategorizedIds, yearRange]);
   const hasSearched = Boolean(searchQuery);
 
   const handleSearch = useCallback(
@@ -58,14 +124,17 @@ export default function SearchPage() {
       if (!trimmed) return;
 
       setSelectedIds(new Set());
+      resetResultView();
       setWorkspaceExpanded(false);
       setReviewContent("");
       setAskAnswer("");
       setAskStatus("");
       setComparisonTable(null);
       await search(trimmed, activeSources);
+      const currentPapers = usePaperStore.getState().papers;
+      if (categorizationEnabled) void categorizeResults(currentPapers);
     },
-    [query, search, sources]
+    [categorizationEnabled, categorizeResults, query, resetResultView, search, setSelectedIds, sources]
   );
 
   const toggleSource = (source: string) => {
@@ -336,6 +405,24 @@ export default function SearchPage() {
                   </button>
                 );
               })}
+              <button
+                type="button"
+                onClick={() => {
+                  const enabled = !categorizationEnabled;
+                  setCategorizationEnabled(enabled);
+                  if (enabled && papers.length > 1) void categorizeResults(papers);
+                }}
+                aria-pressed={categorizationEnabled}
+                className={clsx(
+                  "inline-flex h-8 items-center gap-2 rounded-md border px-3 text-xs font-medium transition",
+                  categorizationEnabled
+                    ? "border-violet-400/60 bg-violet-400/10 text-violet-600 dark:text-violet-300"
+                    : "border-border bg-background text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {categorizing ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                {t(language, categorizationEnabled ? "llmCategorizationOn" : "llmCategorizationOff")}
+              </button>
             </div>
           </form>
         </div>
@@ -464,12 +551,137 @@ export default function SearchPage() {
             {hasSearched && <span className="line-clamp-1 text-xs text-muted-foreground">"{searchQuery}"</span>}
           </div>
 
+          {papers.length > 0 && (
+            <>
+              <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => setActiveCategory(null)}
+                  className={clsx(
+                    "rounded-full px-3 py-1 text-xs font-medium transition",
+                    activeCategory === null
+                      ? "bg-foreground text-background"
+                      : "bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {t(language, "allCategories")} ({papers.length})
+                </button>
+                {categories.map((category) => (
+                  <button
+                    key={category.name}
+                    type="button"
+                    onClick={() => setActiveCategory(category.name)}
+                    className={clsx(
+                      "rounded-full px-3 py-1 text-xs font-medium transition",
+                      activeCategory === category.name
+                        ? "bg-violet-500 text-white"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {category.name} ({category.paper_ids.length})
+                  </button>
+                ))}
+                {uncategorizedIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveCategory("__other__")}
+                    className={clsx(
+                      "rounded-full px-3 py-1 text-xs font-medium transition",
+                      activeCategory === "__other__"
+                        ? "bg-slate-500 text-white"
+                        : "bg-muted text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {t(language, "otherCategory")} ({uncategorizedIds.length})
+                  </button>
+                )}
+                {categorizing && (
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    <Loader2 size={14} className="animate-spin" />
+                    {t(language, "categorizingResults")}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+                <select
+                  value={sourceFilter || ""}
+                  onChange={(event) => setSourceFilter(event.target.value || null)}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                >
+                  <option value="">{t(language, "allSources")}</option>
+                  {SOURCE_OPTIONS.map((source) => (
+                    <option key={source.id} value={source.id}>{source.label}</option>
+                  ))}
+                </select>
+                <select
+                  value={yearRange?.[0] ?? ""}
+                  onChange={(event) => {
+                    if (!event.target.value) {
+                      setYearRange(null);
+                      return;
+                    }
+                    const start = Number(event.target.value);
+                    const end = Math.max(start, yearRange?.[1] ?? availableYears[0] ?? start);
+                    setYearRange([start, end]);
+                  }}
+                  disabled={availableYears.length === 0}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
+                >
+                  <option value="">{t(language, "allYears")}</option>
+                  {availableYears.map((year) => (
+                    <option key={year} value={year}>{t(language, "yearFrom")} {year}</option>
+                  ))}
+                </select>
+                <select
+                  value={yearRange?.[1] ?? ""}
+                  onChange={(event) => {
+                    const end = Number(event.target.value);
+                    const start = Math.min(yearRange?.[0] ?? end, end);
+                    setYearRange([start, end]);
+                  }}
+                  disabled={!yearRange}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
+                >
+                  {availableYears.filter((year) => !yearRange || year >= yearRange[0]).map((year) => (
+                    <option key={year} value={year}>{t(language, "yearTo")} {year}</option>
+                  ))}
+                </select>
+                <div className="relative min-w-44 flex-1">
+                  <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={textFilter}
+                    onChange={(event) => setTextFilter(event.target.value)}
+                    placeholder={t(language, "filterResults")}
+                    className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-xs outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {filteredPapers.length}/{papers.length}
+                </span>
+                {(activeCategory !== null || sourceFilter || yearRange || textFilter) && (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    {t(language, "clearFilters")}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+
           <div className="min-h-0 flex-1 overflow-auto p-3">
             {papers.length === 0 && !loading && (
               <EmptyState
                 title={hasSearched ? t(language, "noPapersFound") : t(language, "startSearchTitle")}
                 body={hasSearched ? t(language, "noPapersFoundHelp") : t(language, "startSearchHelp")}
               />
+            )}
+
+            {papers.length > 0 && filteredPapers.length === 0 && !loading && (
+              <EmptyState title={t(language, "noFilteredPapers")} body={t(language, "noFilteredPapersHelp")} />
             )}
 
             {loading && (
@@ -481,7 +693,7 @@ export default function SearchPage() {
             )}
 
             <div className="grid gap-3">
-              {papers.map((paper) => {
+              {filteredPapers.map((paper) => {
                 const selected = selectedIds.has(paper.id);
                 return (
                   <article
@@ -502,6 +714,11 @@ export default function SearchPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">{paper.source || t(language, "unknown")}</span>
+                          {categoryMap[paper.id] && (
+                            <span className="rounded bg-violet-400/10 px-1.5 py-0.5 text-[11px] text-violet-600 dark:text-violet-300">
+                              {categoryMap[paper.id]}
+                            </span>
+                          )}
                           {paper.year && <span className="text-xs text-muted-foreground">{paper.year}</span>}
                           {paper.citation_count > 0 && (
                             <span className="text-xs text-amber-500">{t(language, "citations")} {paper.citation_count}</span>

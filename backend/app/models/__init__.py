@@ -93,6 +93,25 @@ class SearchResponse(BaseModel):
     source_errors: dict[str, str] = Field(default_factory=dict)
 
 
+class PaperTitle(BaseModel):
+    id: str = Field(min_length=1, max_length=255)
+    title: str = Field(min_length=1, max_length=1000)
+
+
+class CategorizeRequest(BaseModel):
+    papers: list[PaperTitle] = Field(default_factory=list, max_length=200)
+
+
+class CategorizeGroup(BaseModel):
+    name: str
+    paper_ids: list[str] = Field(default_factory=list)
+
+
+class CategorizeResponse(BaseModel):
+    groups: list[CategorizeGroup] = Field(default_factory=list)
+    uncategorized: list[str] = Field(default_factory=list)
+
+
 class ImportRequest(BaseModel):
     project_id: str
     paper_ids: list[str] = Field(default_factory=list)

@@ -852,6 +852,9 @@ def save_to_db(session_id: str, db: Session, *, end_session: bool = False) -> So
     record.rq_history_json = list(session.rq_history)
     record.active_turn_index = len(session.messages) - 1 if session.is_active and session.messages else None
 
+    # Persist the parent row before inserting snapshots that reference it.
+    db.flush()
+
     db.query(SocraticMessageModel).filter(SocraticMessageModel.session_id == session_id).delete(synchronize_session=False)
     db.query(SocraticInsightModel).filter(SocraticInsightModel.session_id == session_id).delete(synchronize_session=False)
     for index, message in enumerate(session.messages):
