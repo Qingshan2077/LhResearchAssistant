@@ -149,18 +149,6 @@ LhResearchAssistant is a desktop application for CS researchers that covers the 
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 为什么选择 LhResearchAssistant？
-
-| 特性 | 本工具 | 其他方案 |
-|:----|:------|:---------|
-| **本地运行** | ✅ 纯桌面端，数据不出本机 | ❌ 多数为 SaaS，数据需上传 |
-| **Token 费用透明** | ✅ 缓存命中率 + 费用实时估算（￥0.02/百万token） | ❌ 黑盒计费 |
-| **Human-in-the-loop** | ✅ AI 辅助而非替代研究者 | ❌ 全自动难以干预 |
-| **多 Provider** | ✅ DeepSeek / OpenAI / Claude / Ollama 自由切换 | ❌ 通常绑定单家 |
-| **离线能力** | ✅ Ollama 本地模型可用 | ❌ 多数需公网 |
-| **检索结果自动分类** | ✅ LLM 实时分组，可筛选 | ❌ 通常平铺列表 |
-| **Socratic 引导** | ✅ 5 层苏格拉底提问，而非直接给答案 | ❌ 缺乏深度引导 |
-| **S2 缓存费用可视** | ✅ 调用时自动捕获 `prompt_cache_hit_tokens` | ❌ 无此粒度 |
 
 ### 快速开始
 
