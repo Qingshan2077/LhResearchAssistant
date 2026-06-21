@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.config import settings as app_settings
@@ -32,6 +32,7 @@ from app.database.sqlite import (
     WritingProject,
 )
 from app.llm.router import DEFAULT_BASE_URLS, DEFAULT_MODELS, get_provider_by_id
+from app.services.cost_estimator import DEEPSEEK_PRICING, estimate_cost
 from app.models import (
     ProviderCreate,
     ProviderResponse,
@@ -314,12 +315,59 @@ def usage_summary(days: int = 7, db: Session = Depends(get_db)):
         .filter(LLMUsage.timestamp >= window_start)
         .first()
     )
+    has_cache_details = or_(
+        LLMUsage.cache_hit_tokens.isnot(None),
+        LLMUsage.cache_miss_tokens.isnot(None),
+    )
+    cache_row = (
+        db.query(
+            func.coalesce(func.sum(LLMUsage.cache_hit_tokens), 0),
+            func.coalesce(func.sum(LLMUsage.cache_miss_tokens), 0),
+        )
+        .filter(LLMUsage.timestamp >= window_start)
+        .filter(LLMUsage.status == "success")
+        .filter(has_cache_details)
+        .first()
+    )
+    cache_hit_tokens = int(cache_row[0] or 0)
+    cache_miss_tokens = int(cache_row[1] or 0)
+    cache_total = cache_hit_tokens + cache_miss_tokens
+    cache_hit_rate = round(cache_hit_tokens / cache_total * 100, 1) if cache_total else None
+
+    priced_rows = (
+        db.query(
+            LLMUsage.model,
+            func.coalesce(func.sum(LLMUsage.cache_hit_tokens), 0),
+            func.coalesce(func.sum(LLMUsage.cache_miss_tokens), 0),
+            func.coalesce(func.sum(LLMUsage.tokens_out), 0),
+        )
+        .filter(LLMUsage.timestamp >= window_start)
+        .filter(LLMUsage.status == "success")
+        .filter(LLMUsage.model.in_(tuple(DEEPSEEK_PRICING)))
+        .filter(has_cache_details)
+        .group_by(LLMUsage.model)
+        .all()
+    )
+    estimated_cost = 0.0
+    cost_by_model = {}
+    for model, cache_hit, cache_miss, tokens_out in priced_rows:
+        estimate = estimate_cost(model, int(cache_hit), int(cache_miss), int(tokens_out))
+        if estimate is None:
+            continue
+        estimated_cost += estimate["total"]
+        cost_by_model[model] = estimate
+
     return {
         "calls_today": calls_today,
         "calls_week": calls_week,
         "calls_month": calls_month,
         "tokens_in_week": int(token_row[0] or 0),
         "tokens_out_week": int(token_row[1] or 0),
+        "cache_hit_rate": cache_hit_rate,
+        "cache_hit_tokens": cache_hit_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "estimated_cost": round(estimated_cost, 6),
+        "cost_by_model": cost_by_model,
     }
 
 
@@ -332,6 +380,8 @@ def usage_by_provider(days: int = 7, db: Session = Depends(get_db)):
             func.count(LLMUsage.id),
             func.coalesce(func.sum(LLMUsage.tokens_in), 0),
             func.coalesce(func.sum(LLMUsage.tokens_out), 0),
+            func.coalesce(func.sum(LLMUsage.cache_hit_tokens), 0),
+            func.coalesce(func.sum(LLMUsage.cache_miss_tokens), 0),
         )
         .filter(LLMUsage.timestamp >= _since(days))
         .group_by(LLMUsage.provider_name, LLMUsage.model)
@@ -345,8 +395,10 @@ def usage_by_provider(days: int = 7, db: Session = Depends(get_db)):
             "calls": calls,
             "tokens_in": int(tokens_in or 0),
             "tokens_out": int(tokens_out or 0),
+            "cache_hit_tokens": int(cache_hit_tokens or 0),
+            "cache_miss_tokens": int(cache_miss_tokens or 0),
         }
-        for provider_name, model, calls, tokens_in, tokens_out in rows
+        for provider_name, model, calls, tokens_in, tokens_out, cache_hit_tokens, cache_miss_tokens in rows
     ]
 
 
@@ -398,6 +450,8 @@ def usage_recent(limit: int = 20, db: Session = Depends(get_db)):
             "tokens_out": row.tokens_out,
             "duration_ms": row.duration_ms,
             "status": row.status,
+            "cache_hit_tokens": row.cache_hit_tokens,
+            "cache_miss_tokens": row.cache_miss_tokens,
         }
         for row in rows
     ]

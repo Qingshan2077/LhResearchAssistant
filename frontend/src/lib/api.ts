@@ -142,6 +142,15 @@ export type UsageSummary = {
   calls_month: number;
   tokens_in_week: number;
   tokens_out_week: number;
+  cache_hit_rate: number | null;
+  cache_hit_tokens: number;
+  cache_miss_tokens: number;
+  estimated_cost: number;
+  cost_by_model: Record<string, {
+    total: number;
+    breakdown: { cache_hit: number; cache_miss: number; output: number };
+    currency: string;
+  }>;
 };
 
 export type UsageByProvider = Array<{
@@ -150,6 +159,8 @@ export type UsageByProvider = Array<{
   calls: number;
   tokens_in: number;
   tokens_out: number;
+  cache_hit_tokens: number;
+  cache_miss_tokens: number;
 }>;
 
 export type UsageByFunction = Array<{
@@ -169,6 +180,8 @@ export type UsageRecord = {
   tokens_out: number;
   duration_ms: number;
   status: string;
+  cache_hit_tokens: number | null;
+  cache_miss_tokens: number | null;
 };
 
 export type DataStats = {

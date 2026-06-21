@@ -6,6 +6,7 @@ from loguru import logger
 from openai import AsyncOpenAI
 
 from app.llm import LLMProvider, LLMConfig, ChatMessage
+from app.llm.usage_context import capture_response_usage
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -25,6 +26,7 @@ class OpenAICompatibleProvider(LLMProvider):
             max_tokens=config.max_tokens,
             temperature=config.temperature,
         )
+        capture_response_usage(resp.usage)
         return resp.choices[0].message.content or ""
 
     async def chat_stream(self, messages: list[ChatMessage], config: LLMConfig) -> AsyncIterator[str]:

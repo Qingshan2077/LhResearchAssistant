@@ -6,13 +6,14 @@ from loguru import logger
 from openai import AsyncOpenAI
 
 from app.llm import LLMProvider, LLMConfig, ChatMessage
+from app.llm.usage_context import capture_response_usage
 
 
 class DeepSeekProvider(LLMProvider):
     """DeepSeek API 实现"""
 
     DEFAULT_BASE_URL = "https://api.deepseek.com"
-    DEFAULT_MODEL = "deepseek-chat"
+    DEFAULT_MODEL = "deepseek-v4-flash"
 
     async def _client(self, config: LLMConfig) -> AsyncOpenAI:
         return AsyncOpenAI(
@@ -28,6 +29,7 @@ class DeepSeekProvider(LLMProvider):
             max_tokens=config.max_tokens,
             temperature=config.temperature,
         )
+        capture_response_usage(resp.usage)
         return resp.choices[0].message.content or ""
 
     async def chat_stream(self, messages: list[ChatMessage], config: LLMConfig) -> AsyncIterator[str]:

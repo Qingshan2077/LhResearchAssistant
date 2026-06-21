@@ -184,6 +184,8 @@ class LLMUsage(Base):
     function_name = Column(String(64), default="")
     tokens_in = Column(Integer, default=0)
     tokens_out = Column(Integer, default=0)
+    cache_hit_tokens = Column(Integer, nullable=True)
+    cache_miss_tokens = Column(Integer, nullable=True)
     duration_ms = Column(Integer, default=0)
     status = Column(String(16), default="success")
     error_msg = Column(String(512), default="")

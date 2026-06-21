@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # 默认 LLM（用户未配置时）
     default_deepseek_api_key: str = ""
     default_deepseek_base_url: str = "https://api.deepseek.com"
-    default_deepseek_model: str = "deepseek-chat"
+    default_deepseek_model: str = "deepseek-v4-flash"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

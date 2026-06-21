@@ -29,7 +29,7 @@ DEFAULT_BASE_URLS: dict[str, str] = {
 
 # 默认模型映射
 DEFAULT_MODELS: dict[str, str] = {
-    "deepseek": "deepseek-chat",
+    "deepseek": "deepseek-v4-flash",
     "openai": "gpt-4o-mini",
     "ollama": "qwen2.5:7b",
 }

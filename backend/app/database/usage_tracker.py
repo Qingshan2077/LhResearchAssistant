@@ -11,6 +11,7 @@ from loguru import logger
 from app.database import SessionLocal
 from app.database.sqlite import LLMUsage
 from app.llm import ChatMessage, LLMConfig, LLMProvider
+from app.llm.usage_context import clear_response_usage, take_response_usage
 
 
 def _estimate_tokens(text: str) -> int:
@@ -46,6 +47,8 @@ def _record_usage(
     tokens_in: int,
     tokens_out: int,
     duration_ms: int,
+    cache_hit_tokens: int | None = None,
+    cache_miss_tokens: int | None = None,
     status: str = "success",
     error_msg: str = "",
     provider_id: str | None = None,
@@ -60,6 +63,8 @@ def _record_usage(
             function_name=function_name,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
+            cache_hit_tokens=cache_hit_tokens,
+            cache_miss_tokens=cache_miss_tokens,
             duration_ms=duration_ms,
             status=status,
             error_msg=error_msg[:512],
@@ -90,27 +95,36 @@ class UsageTrackingProvider(LLMProvider):
     async def chat(self, messages: list[ChatMessage], config: LLMConfig) -> str:
         start = time.perf_counter()
         function_name = _infer_function_name()
-        tokens_in = _message_tokens(messages)
+        estimated_tokens_in = _message_tokens(messages)
+        clear_response_usage()
         try:
             result = await self._inner.chat(messages, config)
             duration_ms = int((time.perf_counter() - start) * 1000)
+            usage = take_response_usage() or {}
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+            cache_hit_tokens = usage.get("prompt_cache_hit_tokens")
+            cache_miss_tokens = usage.get("prompt_cache_miss_tokens")
             _record_usage(
                 config,
                 function_name,
-                tokens_in,
-                _estimate_tokens(result),
+                int(prompt_tokens) if prompt_tokens is not None else estimated_tokens_in,
+                int(completion_tokens) if completion_tokens is not None else _estimate_tokens(result),
                 duration_ms,
+                cache_hit_tokens=int(cache_hit_tokens) if cache_hit_tokens is not None else None,
+                cache_miss_tokens=int(cache_miss_tokens) if cache_miss_tokens is not None else None,
                 provider_id=self._provider_id,
                 provider_name=self._provider_name,
             )
             return result
         except Exception as exc:
+            take_response_usage()
             logger.warning("usage_tracker.py operation failed: {}", exc)
             duration_ms = int((time.perf_counter() - start) * 1000)
             _record_usage(
                 config,
                 function_name,
-                tokens_in,
+                estimated_tokens_in,
                 0,
                 duration_ms,
                 status="error",

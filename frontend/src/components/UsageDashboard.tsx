@@ -53,6 +53,35 @@ export function UsageDashboard() {
           <Metric label={t(language, "output")} value={formatNumber(usageSummary?.tokens_out_week || 0, language)} hint={t(language, "tokens")} />
         </div>
 
+        {usageSummary && typeof usageSummary.cache_hit_rate === "number" && (
+          <div className="grid gap-3 md:grid-cols-3">
+            <Metric
+              label={t(language, "cacheHitRate")}
+              value={`${usageSummary.cache_hit_rate}%`}
+              hint={t(language, "cacheHitRateHint")}
+            />
+            <div className="rounded-lg border border-border bg-background/60 p-3">
+              <div className="text-xs text-muted-foreground">{t(language, "cacheTokens")}</div>
+              <div className="mt-1 text-xs text-emerald-500">
+                {t(language, "cacheHit")}: {formatNumber(usageSummary.cache_hit_tokens, language)}
+              </div>
+              <div className="text-xs text-amber-500">
+                {t(language, "cacheMiss")}: {formatNumber(usageSummary.cache_miss_tokens, language)}
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-background/60 p-3">
+              <div className="text-xs text-muted-foreground">{t(language, "estimatedCost")}</div>
+              <div className="mt-1 text-xl font-semibold">¥ {usageSummary.estimated_cost.toFixed(2)}</div>
+              {Object.entries(usageSummary.cost_by_model || {}).map(([model, cost]) => (
+                <div key={model} className="text-[11px] text-muted-foreground">
+                  {model}: ¥ {cost.total.toFixed(4)}
+                </div>
+              ))}
+              <div className="text-[11px] text-muted-foreground">{t(language, "estimatedCostHint")}</div>
+            </div>
+          </div>
+        )}
+
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-lg border border-border p-3">
             <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -61,16 +90,22 @@ export function UsageDashboard() {
             </div>
             <div className="space-y-3">
               {usageByProvider.length === 0 && <EmptyLine text={t(language, "noProviderUsage")} />}
-              {usageByProvider.map((item) => (
-                <BarRow
-                  key={`${item.provider_name}:${item.model}`}
-                  label={item.provider_name || t(language, "defaultProvider")}
-                  sublabel={item.model}
-                  value={item.calls}
-                  width={(item.calls / maxProviderCalls) * 100}
-                  tone="cyan"
-                />
-              ))}
+              {usageByProvider.map((item) => {
+                const cacheTotal = item.cache_hit_tokens + item.cache_miss_tokens;
+                const cacheRate = cacheTotal > 0
+                  ? Math.round(item.cache_hit_tokens / cacheTotal * 100)
+                  : null;
+                return (
+                  <BarRow
+                    key={`${item.provider_name}:${item.model}`}
+                    label={item.provider_name || t(language, "defaultProvider")}
+                    sublabel={`${item.model}${cacheRate === null ? "" : ` · ${t(language, "cacheHitRate")} ${cacheRate}%`}`}
+                    value={item.calls}
+                    width={(item.calls / maxProviderCalls) * 100}
+                    tone="cyan"
+                  />
+                );
+              })}
             </div>
           </div>
 
@@ -105,7 +140,7 @@ export function UsageDashboard() {
               <EmptyLine text={t(language, "noRecentCalls")} />
             ) : (
               recentUsage.map((record) => (
-                <div key={record.id} className="grid grid-cols-[88px_1fr_90px_110px] gap-3 border-b border-border px-3 py-2 text-xs last:border-b-0">
+                <div key={record.id} className="grid min-w-[760px] grid-cols-[88px_1fr_90px_110px_170px] gap-3 border-b border-border px-3 py-2 text-xs last:border-b-0">
                   <span className="text-muted-foreground">{formatTime(record.timestamp, language)}</span>
                   <span className="min-w-0 truncate">
                     {record.provider_name || t(language, "defaultProvider")} / {record.model || t(language, "unknown")}
@@ -115,6 +150,13 @@ export function UsageDashboard() {
                     <span className={record.status === "success" ? "h-2 w-2 rounded-full bg-green-500" : "h-2 w-2 rounded-full bg-red-500"} />
                     {formatNumber(record.tokens_in, language)}/{formatNumber(record.tokens_out, language)}
                   </span>
+                  {record.cache_hit_tokens != null || record.cache_miss_tokens != null ? (
+                    <span className="text-right text-emerald-500">
+                      {t(language, "cacheHit")} {formatNumber(record.cache_hit_tokens || 0, language)} / {t(language, "cacheMiss")} {formatNumber(record.cache_miss_tokens || 0, language)}
+                    </span>
+                  ) : (
+                    <span className="text-right text-muted-foreground">{t(language, "noCacheData")}</span>
+                  )}
                 </div>
               ))
             )}

@@ -16,13 +16,13 @@ import { type LLMProvider } from "../lib/api";
 import { useSettingsStore } from "../stores/settingsStore";
 
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat"],
+  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1-mini", "o1-preview"],
   ollama: ["qwen2.5:7b", "llama3.2:3b", "llama3.1:8b", "mistral:7b", "codellama:7b"],
 };
 
 const DEFAULTS: Record<string, { display_name: string; base_url: string; default_model: string }> = {
-  deepseek: { display_name: "DeepSeek", base_url: "https://api.deepseek.com", default_model: "deepseek-chat" },
+  deepseek: { display_name: "DeepSeek", base_url: "https://api.deepseek.com", default_model: "deepseek-v4-flash" },
   openai: { display_name: "OpenAI", base_url: "https://api.openai.com/v1", default_model: "gpt-4o-mini" },
   ollama: { display_name: "Ollama", base_url: "http://localhost:11434/v1", default_model: "qwen2.5:7b" },
   custom: { display_name: "Custom", base_url: "", default_model: "" },
@@ -50,7 +50,7 @@ export default function LLMSettingsPage() {
     display_name: "DeepSeek",
     api_key: "",
     base_url: "https://api.deepseek.com",
-    default_model: "deepseek-chat",
+    default_model: "deepseek-v4-flash",
     priority: 1,
     max_tokens: 8192,
     temperature: 0.7,
@@ -76,7 +76,7 @@ export default function LLMSettingsPage() {
       display_name: "DeepSeek",
       api_key: "",
       base_url: "https://api.deepseek.com",
-      default_model: "deepseek-chat",
+      default_model: "deepseek-v4-flash",
       priority: 1,
       max_tokens: 8192,
       temperature: 0.7,
@@ -315,16 +315,34 @@ function ProviderFields({
         <input value={value.display_name || ""} onChange={(e) => onChange({ display_name: e.target.value })} className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm" />
       </Field>
       <Field label={t(language, "model")}>
-        <input
-          list={`models-${type}`}
-          value={value.default_model || ""}
-          onChange={(e) => onChange({ default_model: e.target.value })}
-          className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-        />
-        {suggestions.length > 0 && (
-          <datalist id={`models-${type}`}>
-            {suggestions.map((model) => <option key={model} value={model} />)}
-          </datalist>
+        {suggestions.length > 0 ? (
+          <>
+            <select
+              value={suggestions.includes(value.default_model || "") ? value.default_model : "__custom__"}
+              onChange={(event) => onChange({
+                default_model: event.target.value === "__custom__" ? "" : event.target.value,
+              })}
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            >
+              {suggestions.map((model) => <option key={model} value={model}>{model}</option>)}
+              <option value="__custom__">{t(language, "customModel")}</option>
+            </select>
+            {!suggestions.includes(value.default_model || "") && (
+              <input
+                value={value.default_model || ""}
+                onChange={(event) => onChange({ default_model: event.target.value })}
+                placeholder={t(language, "customModelPlaceholder")}
+                className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              />
+            )}
+          </>
+        ) : (
+          <input
+            value={value.default_model || ""}
+            onChange={(event) => onChange({ default_model: event.target.value })}
+            placeholder={t(language, "customModelPlaceholder")}
+            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+          />
         )}
       </Field>
       <Field label={t(language, "baseUrl")}>
