@@ -473,6 +473,15 @@ async def handle_message(session_id: str, message: str, provider: LLMProvider | 
     if session.no_insight_turns > 10 and session.turn_count > 12:
         response += "\n\n---\n\n你已经超过 10 轮没有形成新 INSIGHT，建议切换到 full 模式直接生成研究计划草案。"
 
+    # Also extract INSIGHT tags from the assistant's response itself,
+    # since the LLM is trained to tag [INSIGHT: ...] for user ideas
+    assistant_insights = _extract_insights(response)
+    for insight in assistant_insights:
+        if insight not in session.insights:
+            session.insights.append(insight)
+    if assistant_insights:
+        session.no_insight_turns = 0
+
     session.messages.append({"role": "assistant", "content": response})
     response_type = "insight" if new_insights else "question"
     return {"type": response_type, "content": response, **_session_payload(session)}
