@@ -9,13 +9,13 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
 type PDFDocumentProxy = any;
 type PDFPageProxy = any;
-type TextItem = { str: string; transform: number[]; width: number; [key: string]: any };
+type PdfTextItem = { str: string; transform: number[]; width: number };
 
 type LoadedPage = {
   pageNumber: number;
   page: PDFPageProxy;
   text: string;
-  items: TextItem[];
+  items: PdfTextItem[];
 };
 
 const COLORS = ["#fde047", "#86efac", "#93c5fd", "#f9a8d4", "#fdba74"];
@@ -236,7 +236,16 @@ export function PdfViewer({
         for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
           const page = await doc.getPage(pageNumber);
           const textContent = await page.getTextContent();
-          const items = textContent.items.filter((item): item is TextItem => "str" in item);
+          const items: PdfTextItem[] = textContent.items
+            .filter((item) => "str" in item)
+            .map((item) => {
+              const textItem = item as { str: string; transform?: unknown; width?: unknown };
+              return {
+                str: textItem.str,
+                transform: Array.isArray(textItem.transform) ? textItem.transform as number[] : [1, 0, 0, 1, 0, 0],
+                width: typeof textItem.width === "number" ? textItem.width : 0,
+              };
+            });
           loadedPages.push({ pageNumber, page, items, text: items.map((item) => item.str).join(" ") });
           if (cancelled) return;
           if (pageNumber === 1 || pageNumber % 5 === 0 || pageNumber === doc.numPages) {

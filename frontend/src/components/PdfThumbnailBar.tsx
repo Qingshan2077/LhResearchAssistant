@@ -8,7 +8,7 @@ function PdfThumbnail({ pdf, pageNumber, active, onClick }: { pdf: PDFDocumentPr
   useEffect(() => {
     let cancelled = false;
     setFailed(false);
-    pdf.getPage(pageNumber).then((page) => {
+    pdf.getPage(pageNumber).then((page: any) => {
       if (cancelled || !canvasRef.current) return;
       const viewport = page.getViewport({ scale: 0.18 });
       const canvas = canvasRef.current;
