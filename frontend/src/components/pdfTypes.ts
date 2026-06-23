@@ -32,3 +32,5 @@ export type PdfSearchResult = {
   index: number;
   preview: string;
 };
+
+export type PdfPageTheme = "white" | "khaki" | "green" | "gray";

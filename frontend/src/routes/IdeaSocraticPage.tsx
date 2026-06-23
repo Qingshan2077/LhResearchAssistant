@@ -107,7 +107,7 @@ export default function IdeaSocraticPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5">
+    <div className="flex min-h-full flex-col gap-5">
       <section className="rounded-lg border border-border bg-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
@@ -155,8 +155,8 @@ export default function IdeaSocraticPage() {
       </section>
 
       {!sessionId ? (
-        <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
+        <div className="grid items-start gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <section className="flex max-h-[640px] flex-col rounded-lg border border-border bg-card">
             <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-medium">
               <History size={16} />
               {t(language, "historySessions")}
@@ -200,8 +200,8 @@ export default function IdeaSocraticPage() {
           </section>
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
+        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="flex min-h-[640px] flex-col rounded-lg border border-border bg-card">
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div className="text-sm font-medium">
                 Layer {currentLayer}: {layerName}
@@ -267,7 +267,7 @@ export default function IdeaSocraticPage() {
             </div>
           </section>
 
-          <aside className="flex min-h-0 flex-col gap-4 overflow-hidden">
+          <aside className="flex min-w-0 flex-col gap-4">
             <section className="rounded-lg border border-border bg-card p-4">
               <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
                 <CheckCircle2 size={16} className="text-emerald-500" />

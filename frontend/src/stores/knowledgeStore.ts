@@ -10,6 +10,7 @@ interface KnowledgeStore {
   fetchGraph: (projectId: string) => Promise<void>;
   fetchMindMap: (paperId: string) => Promise<void>;
   query: (projectId: string, query: string) => Promise<void>;
+  clearQueryResult: () => void;
   saveMindMap: (paperId: string, nodes: MindMapData["nodes"]) => Promise<void>;
 }
 
@@ -54,6 +55,8 @@ export const useKnowledgeStore = create<KnowledgeStore>((set) => ({
       set({ queryResult: "Query failed.", querying: false });
     }
   },
+
+  clearQueryResult: () => set({ queryResult: "" }),
 
   saveMindMap: async (paperId, nodes) => {
     await api.patch(`knowledge/mindmap/${paperId}`, { json: { nodes } });

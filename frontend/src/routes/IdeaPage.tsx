@@ -274,7 +274,7 @@ export default function IdeaPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5">
+    <div className="flex min-h-full flex-col gap-5">
       <section className="rounded-lg border border-border bg-card p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -307,8 +307,8 @@ export default function IdeaPage() {
         </div>
       </section>
 
-      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <aside className="flex min-h-0 flex-col gap-4 overflow-hidden">
+      <div className="grid items-start gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <aside className="flex min-w-0 flex-col gap-4">
           <div className="grid grid-cols-2 rounded-lg border border-border bg-card p-1">
             <button onClick={() => setSidebarTab("papers")} className={clsx("rounded-md px-3 py-2 text-xs", sidebarTab === "papers" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>{t(language, "paperSelection")}</button>
             <button onClick={() => setSidebarTab("history")} className={clsx("rounded-md px-3 py-2 text-xs", sidebarTab === "history" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>{t(language, "historyRecords")}</button>
@@ -466,7 +466,7 @@ export default function IdeaPage() {
             </div>
           </section>
 
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+          <section className="flex max-h-[680px] flex-col overflow-hidden rounded-lg border border-border bg-card">
             <div className="border-b border-border p-3">
               <div className="mb-2 flex items-center justify-between text-sm font-medium">
                 {t(language, "selectContextPapers")}
@@ -524,7 +524,7 @@ export default function IdeaPage() {
           </section>
             </>
           ) : (
-            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+            <section className="flex max-h-[680px] flex-col overflow-hidden rounded-lg border border-border bg-card">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
                 <div className="flex items-center gap-2 text-sm font-medium"><History size={15} />{t(language, "ideaHistory")}</div>
                 <button onClick={startNewIdea} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><Plus size={13} />{t(language, "newIdea")}</button>
@@ -546,7 +546,7 @@ export default function IdeaPage() {
           )}
         </aside>
 
-        <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
+        <section className="overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="text-sm font-medium">{t(language, "ideaGenResult")}{viewingHistoryId ? ` · ${t(language, "historyReadonly")}` : ""}</div>
             <div className="flex items-center gap-3">
@@ -562,7 +562,7 @@ export default function IdeaPage() {
               </div>
             </div>
           </div>
-          <div className="h-full overflow-auto p-4">
+          <div className="p-4">
             {streamStatus && (
               <div className="mb-3 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
                 {streamStatus}

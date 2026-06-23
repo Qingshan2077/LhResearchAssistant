@@ -354,7 +354,7 @@ export default function WritePage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5">
+    <div className="flex min-h-full flex-col gap-5">
       <section className="rounded-lg border border-border bg-card p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
@@ -410,8 +410,8 @@ export default function WritePage() {
         </div>
       </section>
 
-      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
-        <aside className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
+      <div className="grid items-start gap-5 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
+        <aside className="max-h-[720px] overflow-hidden rounded-lg border border-border bg-card">
           <div className="border-b border-border px-4 py-3 text-sm font-medium">{t(language, "writingProject")}</div>
           <div className="h-full overflow-auto p-3">
             {projects.length === 0 ? (
@@ -444,9 +444,9 @@ export default function WritePage() {
           </div>
         </aside>
 
-        <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card">
+        <section className="overflow-hidden rounded-lg border border-border bg-card">
           {selectedProject ? (
-            <div className="flex h-full min-h-0 flex-col">
+            <div className="flex min-h-[720px] flex-col">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold">{selectedProject.title}</div>
@@ -594,8 +594,8 @@ export default function WritePage() {
           )}
         </section>
 
-        <aside className="flex min-h-0 flex-col gap-4 overflow-hidden">
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+        <aside className="flex min-w-0 flex-col gap-4">
+          <section className="flex max-h-[720px] flex-col overflow-hidden rounded-lg border border-border bg-card">
             <div className="border-b border-border px-4 py-3 text-sm font-medium">
               引用管理
             </div>

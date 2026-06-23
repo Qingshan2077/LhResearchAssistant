@@ -375,7 +375,7 @@ export default function ReviewPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5">
+    <div className="flex min-h-full flex-col gap-5">
       <section className="overflow-hidden rounded-lg border border-border bg-card">
         <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_420px]">
           <div className="relative p-5">
@@ -443,9 +443,9 @@ export default function ReviewPage() {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div>
         {activeTab === "venue" && (
-          <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+          <div className="grid items-start gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
             <section className="rounded-lg border border-border bg-card p-4">
               <SectionTitle icon={SearchCheck} title="投稿匹配" />
               <div className="mt-4 grid gap-3">
@@ -500,7 +500,7 @@ export default function ReviewPage() {
         )}
 
         {activeTab === "format" && (
-          <section className="flex h-full min-h-0 flex-col rounded-lg border border-border bg-card">
+          <section className="flex min-h-[620px] flex-col rounded-lg border border-border bg-card">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
               <SectionTitle icon={FileCheck2} title="LaTeX 格式检查" />
               <div className="flex gap-2">
@@ -558,8 +558,8 @@ export default function ReviewPage() {
         )}
 
         {activeTab === "simulate" && (
-          <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <section className="flex min-h-[620px] flex-col rounded-lg border border-border bg-card">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
                 <SectionTitle icon={ClipboardCheck} title="模拟审稿" />
                 <button
@@ -615,9 +615,9 @@ export default function ReviewPage() {
         )}
 
         {activeTab === "letters" && (
-          <div className="flex h-full min-h-0 flex-col gap-5 overflow-hidden">
-            <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-2">
-              <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
+          <div className="flex flex-col gap-5">
+            <div className="grid items-start gap-5 xl:grid-cols-2">
+              <section className="flex min-h-[620px] flex-col rounded-lg border border-border bg-card">
                 <div className="flex items-center justify-between border-b border-border p-4">
                   <SectionTitle icon={Mail} title="Cover Letter" />
                   <button
@@ -645,7 +645,7 @@ export default function ReviewPage() {
                 </div>
               </section>
 
-              <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
+              <section className="flex min-h-[620px] flex-col rounded-lg border border-border bg-card">
                 <div className="flex items-center justify-between border-b border-border p-4">
                   <SectionTitle icon={MessageSquareReply} title="Rebuttal" />
                   <button
@@ -712,8 +712,8 @@ export default function ReviewPage() {
         )}
 
         {activeTab === "checklist" && (
-          <div className="grid h-full min-h-0 gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
-            <section className="flex min-h-0 flex-col rounded-lg border border-border bg-card">
+          <div className="grid items-start gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+            <section className="flex min-h-[620px] flex-col rounded-lg border border-border bg-card">
               <div className="flex items-center justify-between border-b border-border p-4">
                 <SectionTitle icon={AlertTriangle} title="7-mode AI Failure Checklist" />
                 <button

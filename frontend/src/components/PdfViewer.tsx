@@ -3,7 +3,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import workerSrc from "pdfjs-dist/build/pdf.worker.mjs?url";
 import { PdfToolbar } from "./PdfToolbar";
 import { PdfThumbnailBar } from "./PdfThumbnailBar";
-import type { NewPdfAnnotation, PdfAnnotation, PdfSearchResult } from "./pdfTypes";
+import type { NewPdfAnnotation, PdfAnnotation, PdfPageTheme, PdfSearchResult } from "./pdfTypes";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
@@ -19,6 +19,14 @@ type LoadedPage = {
 };
 
 const COLORS = ["#fde047", "#86efac", "#93c5fd", "#f9a8d4", "#fdba74"];
+const VIRTUAL_PAGE_BUFFER = 2;
+
+const PAGE_THEME_STYLES: Record<PdfPageTheme, { viewer: string; overlay: string }> = {
+  white: { viewer: "bg-muted/30", overlay: "transparent" },
+  khaki: { viewer: "bg-amber-50", overlay: "rgba(245, 222, 179, 0.26)" },
+  green: { viewer: "bg-emerald-50", overlay: "rgba(187, 247, 208, 0.20)" },
+  gray: { viewer: "bg-slate-200", overlay: "rgba(148, 163, 184, 0.16)" },
+};
 
 function normalizeText(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ");
@@ -34,6 +42,7 @@ function PageRender({
   scale,
   query,
   active,
+  pageTheme,
   annotations,
   onAnnotationAdd,
 }: {
@@ -41,6 +50,7 @@ function PageRender({
   scale: number;
   query: string;
   active: boolean;
+  pageTheme: PdfPageTheme;
   annotations: PdfAnnotation[];
   onAnnotationAdd: (annotation: NewPdfAnnotation) => Promise<void> | void;
 }) {
@@ -48,6 +58,7 @@ function PageRender({
   const pageRef = useRef<HTMLDivElement | null>(null);
   const viewport = useMemo(() => loaded.page.getViewport({ scale }), [loaded.page, scale]);
   const pageAnnotations = annotations.filter((item) => item.page_number === loaded.pageNumber);
+  const themeStyle = PAGE_THEME_STYLES[pageTheme];
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -94,6 +105,9 @@ function PageRender({
     <div className="mb-6 flex justify-center" data-page-number={loaded.pageNumber}>
       <div ref={pageRef} className={("relative bg-white shadow " + (active ? "ring-2 ring-primary/40" : ""))} style={{ width: viewport.width, height: viewport.height }}>
         <canvas ref={canvasRef} className="absolute inset-0" />
+        {themeStyle.overlay !== "transparent" && (
+          <div className="pointer-events-none absolute inset-0 mix-blend-multiply" style={{ background: themeStyle.overlay }} />
+        )}
         <div className="absolute inset-0 pointer-events-none">
           {pageAnnotations.flatMap((annotation) => annotation.rects.map((rect, index) => (
             <div
@@ -151,6 +165,35 @@ function PageRender({
   );
 }
 
+function PagePlaceholder({
+  loaded,
+  scale,
+  pageTheme,
+}: {
+  loaded: LoadedPage;
+  scale: number;
+  pageTheme: PdfPageTheme;
+}) {
+  const viewport = useMemo(() => loaded.page.getViewport({ scale }), [loaded.page, scale]);
+  const themeStyle = PAGE_THEME_STYLES[pageTheme];
+
+  return (
+    <div className="mb-6 flex justify-center" data-page-number={loaded.pageNumber}>
+      <div
+        className="relative flex items-center justify-center bg-white text-xs text-muted-foreground shadow"
+        style={{ width: viewport.width, height: viewport.height }}
+      >
+        {themeStyle.overlay !== "transparent" && (
+          <div className="pointer-events-none absolute inset-0 mix-blend-multiply" style={{ background: themeStyle.overlay }} />
+        )}
+        <div className="relative rounded bg-background/90 px-3 py-2 shadow-sm">
+          p.{loaded.pageNumber} · 滚动到附近后渲染
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PdfViewer({
   pdfUrl,
   paperId,
@@ -176,6 +219,7 @@ export function PdfViewer({
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
   const [showThumbnails, setShowThumbnails] = useState(false);
+  const [pageTheme, setPageTheme] = useState<PdfPageTheme>("white");
 
   useEffect(() => {
     let cancelled = false;
@@ -195,8 +239,11 @@ export function PdfViewer({
           const items = textContent.items.filter((item): item is TextItem => "str" in item);
           loadedPages.push({ pageNumber, page, items, text: items.map((item) => item.str).join(" ") });
           if (cancelled) return;
+          if (pageNumber === 1 || pageNumber % 5 === 0 || pageNumber === doc.numPages) {
+            setPages([...loadedPages]);
+            setLoading(false);
+          }
         }
-        setPages(loadedPages);
       })
       .catch((err) => setError(String(err)))
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -307,6 +354,7 @@ export function PdfViewer({
         searchResults={searchResults}
         activeSearchIndex={activeSearchIndex}
         showThumbnails={showThumbnails}
+        pageTheme={pageTheme}
         onPageChange={goToPage}
         onZoomIn={() => setScale((value) => Math.min(4, value + 0.15))}
         onZoomOut={() => setScale((value) => Math.max(0.3, value - 0.15))}
@@ -316,16 +364,22 @@ export function PdfViewer({
         onSearchPrev={() => goToSearchIndex(activeSearchIndex - 1)}
         onSearchNext={() => goToSearchIndex(activeSearchIndex + 1)}
         onToggleThumbnails={() => setShowThumbnails((value) => !value)}
+        onPageThemeChange={setPageTheme}
       />
       <div className="flex min-h-0 flex-1">
         {showThumbnails && <PdfThumbnailBar pdf={pdf} totalPages={pdf?.numPages || 0} currentPage={currentPage} onPageClick={goToPage} />}
-        <div ref={containerRef} className="min-h-0 flex-1 overflow-auto bg-muted/30 p-4">
-          {loading ? (
+        <div ref={containerRef} className={`min-h-0 flex-1 overflow-auto p-4 ${PAGE_THEME_STYLES[pageTheme].viewer}`}>
+          {loading && !pages.length ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading PDF...</div>
           ) : pages.length ? (
-            pages.map((page) => (
-              <PageRender key={paperId + "-" + page.pageNumber + "-" + scale} loaded={page} scale={scale} query={searchQuery} active={page.pageNumber === currentPage} annotations={annotations} onAnnotationAdd={onAnnotationAdd} />
-            ))
+            pages.map((page) => {
+              const shouldRenderPage = Math.abs(page.pageNumber - currentPage) <= VIRTUAL_PAGE_BUFFER;
+              return shouldRenderPage ? (
+                <PageRender key={paperId + "-" + page.pageNumber + "-" + scale + "-" + pageTheme} loaded={page} scale={scale} query={searchQuery} active={page.pageNumber === currentPage} pageTheme={pageTheme} annotations={annotations} onAnnotationAdd={onAnnotationAdd} />
+              ) : (
+                <PagePlaceholder key={paperId + "-" + page.pageNumber + "-placeholder-" + scale + "-" + pageTheme} loaded={page} scale={scale} pageTheme={pageTheme} />
+              );
+            })
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No PDF pages available.</div>
           )}

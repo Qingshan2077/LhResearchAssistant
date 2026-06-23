@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, Loader2, Network, Search as SearchIcon } from "lucide-react";
+import { BookOpen, Loader2, Network, Search as SearchIcon, X } from "lucide-react";
 import cytoscape from "cytoscape";
 import { ChatPanel } from "../components/ChatPanel";
 import { t } from "../i18n";
@@ -10,7 +10,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 export default function KnowledgeBasePage() {
   const navigate = useNavigate();
   const language = useSettingsStore((s) => s.language);
-  const { graphData, fetchGraph, query, queryResult, querying } = useKnowledgeStore();
+  const { graphData, fetchGraph, query, queryResult, querying, clearQueryResult } = useKnowledgeStore();
   const [searchInput, setSearchInput] = useState("");
   const graphRef = useRef<HTMLDivElement | null>(null);
 
@@ -138,8 +138,13 @@ export default function KnowledgeBasePage() {
     }
   };
 
+  const clearSearchResult = () => {
+    setSearchInput("");
+    clearQueryResult();
+  };
+
   return (
-    <div className="flex h-full flex-col gap-6">
+    <div className="flex min-h-full flex-col gap-6">
       <section className="relative overflow-hidden rounded-lg border border-border bg-card p-5 shadow-sm">
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyan-400 via-violet-500 to-amber-300" />
         <h1 className="text-2xl font-bold">{t(language, "knowledgeTitle")}</h1>
@@ -163,8 +168,8 @@ export default function KnowledgeBasePage() {
         </div>
       </section>
 
-      <div className="flex min-h-0 flex-1 gap-6">
-        <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <div className="flex min-h-[620px] flex-col overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2.5">
             <span className="flex items-center gap-2 text-sm font-medium">
               <Network size={16} />
@@ -187,10 +192,19 @@ export default function KnowledgeBasePage() {
           </div>
         </div>
 
-        <div className="flex w-[400px] shrink-0 flex-col gap-4">
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border">
-            <div className="border-b border-border bg-muted/30 px-4 py-2.5 text-sm font-medium">
-              {t(language, "searchResults")}
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex min-h-[300px] flex-col overflow-hidden rounded-lg border border-border">
+            <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2.5 text-sm font-medium">
+              <span>{t(language, "searchResults")}</span>
+              {queryResult && (
+                <button
+                  onClick={clearSearchResult}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <X size={12} />
+                  清除
+                </button>
+              )}
             </div>
             <div className="flex-1 overflow-auto p-4">
               {queryResult ? (
@@ -205,7 +219,7 @@ export default function KnowledgeBasePage() {
               )}
             </div>
           </div>
-          <div className="min-h-[320px] flex-1">
+          <div className="min-h-[360px]">
             <ChatPanel defaultOpen />
           </div>
         </div>

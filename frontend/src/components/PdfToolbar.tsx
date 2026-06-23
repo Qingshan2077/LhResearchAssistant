@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Columns3, Minus, PanelLeft, Plus, Search, X } from "lucide-react";
-import type { PdfSearchResult } from "./pdfTypes";
+import type { PdfPageTheme, PdfSearchResult } from "./pdfTypes";
 
 export function PdfToolbar({
   currentPage,
@@ -9,6 +9,7 @@ export function PdfToolbar({
   searchResults,
   activeSearchIndex,
   showThumbnails,
+  pageTheme,
   onPageChange,
   onZoomIn,
   onZoomOut,
@@ -18,6 +19,7 @@ export function PdfToolbar({
   onSearchPrev,
   onSearchNext,
   onToggleThumbnails,
+  onPageThemeChange,
 }: {
   currentPage: number;
   totalPages: number;
@@ -26,6 +28,7 @@ export function PdfToolbar({
   searchResults: PdfSearchResult[];
   activeSearchIndex: number;
   showThumbnails: boolean;
+  pageTheme: PdfPageTheme;
   onPageChange: (page: number) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -35,12 +38,13 @@ export function PdfToolbar({
   onSearchPrev: () => void;
   onSearchNext: () => void;
   onToggleThumbnails: () => void;
+  onPageThemeChange: (theme: PdfPageTheme) => void;
 }) {
   const searchCount = searchResults.length;
   const activeLabel = searchCount > 0 ? activeSearchIndex + 1 : 0;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-2 text-xs">
+    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap border-b border-border bg-muted/20 px-3 py-2 text-xs">
       <button onClick={onToggleThumbnails} className="rounded-md border border-border px-2 py-1 hover:bg-muted" title="Thumbnails">
         <PanelLeft size={14} className={showThumbnails ? "text-primary" : "text-muted-foreground"} />
       </button>
@@ -55,6 +59,17 @@ export function PdfToolbar({
       <button onClick={onFitPage} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-muted">
         <Columns3 size={13} /> Fit page
       </button>
+      <select
+        value={pageTheme}
+        onChange={(event) => onPageThemeChange(event.target.value as PdfPageTheme)}
+        className="h-7 rounded-md border border-input bg-background px-2 text-muted-foreground outline-none"
+        title="PDF page background"
+      >
+        <option value="white">白底</option>
+        <option value="khaki">护眼黄</option>
+        <option value="green">护眼绿</option>
+        <option value="gray">灰底</option>
+      </select>
 
       <div className="mx-1 h-5 w-px bg-border" />
       <button onClick={() => onPageChange(Math.max(1, currentPage - 1))} disabled={currentPage <= 1} className="rounded-md border border-border px-2 py-1 hover:bg-muted disabled:opacity-40">
@@ -70,7 +85,7 @@ export function PdfToolbar({
         <ChevronRight size={14} />
       </button>
 
-      <div className="ml-auto flex min-w-[260px] items-center gap-1 rounded-md border border-input bg-background px-2 py-1">
+      <div className="ml-auto flex min-w-[260px] shrink-0 items-center gap-1 rounded-md border border-input bg-background px-2 py-1">
         <Search size={14} className="text-muted-foreground" />
         <input
           value={searchQuery}

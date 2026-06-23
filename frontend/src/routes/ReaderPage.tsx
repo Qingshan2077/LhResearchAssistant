@@ -12,6 +12,8 @@ import {
   Brain,
   BookOpen,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
   FileText,
   GitBranch,
@@ -41,6 +43,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { ChatPanel } from "../components/ChatPanel";
 
 type Tab = "structure" | "mindmap" | "notes" | "citations" | "annotations" | "citation_graph" | "chat";
+type ReadStatus = "unread" | "reading" | "read";
 
 type CitationStatus = {
   total: number;
@@ -69,6 +72,13 @@ export default function ReaderPage() {
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphError, setGraphError] = useState("");
   const [mindmapFullscreen, setMindmapFullscreen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(400);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
+  const [parsePhase, setParsePhase] = useState("");
+  const [parseProgress, setParseProgress] = useState(0);
+  const [readStatus, setReadStatus] = useState<ReadStatus>("unread");
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
 
   const mindmapData = useKnowledgeStore((s) => s.mindmapData);
   const fetchMindMap = useKnowledgeStore((s) => s.fetchMindMap);
@@ -109,6 +119,8 @@ export default function ReaderPage() {
       .then((p) => {
         setPaper(p);
         setNotes(p.notes || "");
+        setReadStatus((p.read_status as ReadStatus) || "unread");
+        setShowStatusMenu(false);
         if (p.pdf_path) {
           setPdfUrl(`${apiUrl(`papers/${id}/pdf`)}?t=${Date.now()}`);
         }
@@ -151,52 +163,112 @@ export default function ReaderPage() {
     return () => window.removeEventListener("keydown", handler);
   }, [mindmapFullscreen]);
 
+  useEffect(() => {
+    if (!isDraggingSidebar) return;
+    const handleMouseMove = (event: MouseEvent) => {
+      const container = document.querySelector<HTMLElement>(".reader-container");
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const nextWidth = rect.right - event.clientX;
+      setSidebarWidth(Math.max(200, Math.min(700, nextWidth)));
+    };
+    const handleMouseUp = () => setIsDraggingSidebar(false);
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDraggingSidebar]);
+
+  const clearParseStatusLater = () => {
+    window.setTimeout(() => {
+      setParsePhase("");
+      setParseProgress(0);
+    }, 3000);
+  };
+
   const handleParse = async () => {
     if (!id) return;
     setParsing(true);
+    setParsePhase("准备解析论文...");
+    setParseProgress(5);
     try {
       const response = await fetch(apiUrl(`papers/${id}/parse`), {
         method: "POST",
       });
       const reader = response.body?.getReader();
-      if (!reader) return;
+      if (!reader) {
+        setParsePhase("无法读取解析进度流");
+        setParseProgress(0);
+        return;
+      }
 
       const decoder = new TextDecoder();
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const text = decoder.decode(value, { stream: true });
-        // 解析 SSE 事件
         for (const line of text.split("\n")) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === "result") {
-                setPaper((prev) =>
-                  prev ? { ...prev, extracted_data: data.extracted_data } : prev
-                );
-                fetchMindMap(id);
-              } else if (data.type === "done") {
-                setParsing(false);
-              } else if (data.type === "error") {
-                console.error("Parse error:", data.message);
-                setParsing(false);
-              }
-            } catch {
-              // ignore
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === "progress") {
+              setParsePhase(String(data.message || data.phase || "解析中..."));
+              setParseProgress(Math.max(0, Math.min(100, Number(data.progress ?? data.percent ?? 20))));
+            } else if (data.type === "status") {
+              setParsePhase(String(data.message || "解析中..."));
+              setParseProgress((value) => Math.max(value, 20));
+            } else if (data.type === "result") {
+              setPaper((prev) =>
+                prev ? { ...prev, extracted_data: data.extracted_data } : prev
+              );
+              setParsePhase("正在生成结构化结果...");
+              setParseProgress(90);
+              fetchMindMap(id);
+            } else if (data.type === "done") {
+              setParsePhase("解析完成");
+              setParseProgress(100);
+              clearParseStatusLater();
+            } else if (data.type === "error") {
+              console.error("Parse error:", data.message);
+              setParsePhase(`解析失败：${data.message || "未知错误"}`);
+              setParseProgress(0);
+              clearParseStatusLater();
             }
+          } catch {
+            // ignore malformed SSE line
           }
         }
       }
     } catch (e) {
       console.error("Parse failed:", e);
+      setParsePhase(`解析失败：${String(e)}`);
+      setParseProgress(0);
+      clearParseStatusLater();
+    } finally {
+      setParsing(false);
     }
-    setParsing(false);
   };
 
   const handleSaveNotes = async () => {
     if (!id) return;
     await api.patch(`papers/${id}`, { json: { notes } });
+  };
+
+  const handleReadStatusChange = async (nextStatus: ReadStatus) => {
+    if (!id || !paper) return;
+    const previousStatus = readStatus;
+    setReadStatus(nextStatus);
+    setShowStatusMenu(false);
+    setPaper((prev) => prev ? { ...prev, read_status: nextStatus } : prev);
+    try {
+      await api.patch(`papers/${id}`, { json: { read_status: nextStatus } });
+    } catch (e) {
+      console.error("Failed to update read status:", e);
+      setReadStatus(previousStatus);
+      setPaper((prev) => prev ? { ...prev, read_status: previousStatus } : prev);
+    }
   };
 
   const createPdfAnnotation = async (annotation: NewPdfAnnotation) => {
@@ -271,9 +343,19 @@ export default function ReaderPage() {
 
   const extracted = paper.extracted_data as Record<string, unknown> || {};
   const method = extracted.method as Record<string, unknown> || {};
+  const readStatusLabel: Record<ReadStatus, string> = {
+    unread: "未读",
+    reading: "阅读中",
+    read: "已读",
+  };
+  const readStatusOptions: Array<{ value: ReadStatus; label: string; icon: typeof FileText }> = [
+    { value: "unread", label: "未读", icon: FileText },
+    { value: "reading", label: "阅读中", icon: BookOpen },
+    { value: "read", label: "已读", icon: CheckCircle2 },
+  ];
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-[calc(100%+96px)] flex-col">
       {/* 顶部导航 */}
       <div className="flex items-center gap-4 mb-4 pb-4 border-b border-border">
         <button
@@ -303,6 +385,29 @@ export default function ReaderPage() {
             <Brain size={14} /> 已解析
           </span>
         )}
+        <div className="relative">
+          <button
+            onClick={() => setShowStatusMenu((value) => !value)}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted"
+          >
+            {readStatus === "read" ? <CheckCircle2 size={15} /> : readStatus === "reading" ? <BookOpen size={15} /> : <FileText size={15} />}
+            {readStatusLabel[readStatus]}
+          </button>
+          {showStatusMenu && (
+            <div className="absolute right-0 top-full z-20 mt-2 w-32 overflow-hidden rounded-lg border border-border bg-popover shadow-lg">
+              {readStatusOptions.map(({ value, label, icon: Icon }) => (
+                <button
+                  key={value}
+                  onClick={() => handleReadStatusChange(value)}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted ${readStatus === value ? "text-primary" : "text-foreground"}`}
+                >
+                  <Icon size={14} />
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           onClick={handleVerifyCitations}
           disabled={verifyingCitations}
@@ -313,7 +418,7 @@ export default function ReaderPage() {
         </button>
       </div>
 
-      <div className="flex gap-4 flex-1 min-h-0">
+      <div className={`reader-container flex gap-0 flex-1 min-h-0 ${isDraggingSidebar ? "select-none cursor-col-resize" : ""}`}>
         {/* PDF 阅读器 */}
         <div className="flex-1 border border-border rounded-lg overflow-hidden bg-card flex flex-col">
           <div className="px-4 py-2 border-b border-border bg-muted/30 flex items-center justify-between text-sm">
@@ -378,8 +483,25 @@ export default function ReaderPage() {
           </div>
         </div>
 
+        {!mindmapFullscreen && (
+          <div
+            className="group relative z-10 flex w-3 shrink-0 cursor-col-resize justify-center"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              setIsDraggingSidebar(true);
+              setSidebarCollapsed(false);
+            }}
+            title="拖拽调整右侧栏宽度"
+          >
+            <div className="h-full w-px bg-border transition-colors group-hover:bg-primary/70" />
+          </div>
+        )}
+
         {/* 右侧面板 */}
-        <div className={mindmapFullscreen ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-background" : "w-[400px] border border-border rounded-lg overflow-hidden flex flex-col shrink-0"}>
+        <div
+          className={mindmapFullscreen ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-background" : "border border-border rounded-lg overflow-hidden flex flex-col shrink-0 transition-[width] duration-100"}
+          style={mindmapFullscreen ? undefined : { width: sidebarCollapsed ? 40 : sidebarWidth }}
+        >
           {/* Tab 切换 */}
           <div className={mindmapFullscreen ? "flex items-center justify-between border-b border-border bg-background px-4 py-3" : "flex border-b border-border bg-muted/20"}>
             {mindmapFullscreen ? (
@@ -390,7 +512,7 @@ export default function ReaderPage() {
               </>
             ) : (
               <>
-                <div className="flex min-w-0 flex-1">
+                <div className={sidebarCollapsed ? "flex min-w-0 flex-1 flex-col" : "flex min-w-0 flex-1"}>
                   {([
                     { key: "structure", label: "\u7ed3\u6784\u5316", icon: Brain },
                     { key: "mindmap", label: "\u601d\u7ef4\u56fe", icon: BookOpen },
@@ -403,21 +525,40 @@ export default function ReaderPage() {
                     <button
                       key={key}
                       onClick={() => setActiveTab(key)}
-                      className={`flex-1 px-3 py-2.5 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                      title={label}
+                      className={`${sidebarCollapsed ? "h-10 px-0" : "flex-1 px-3 py-2.5"} text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
                         activeTab === key
                           ? "text-primary border-b-2 border-primary bg-primary/5"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       <Icon size={14} />
-                      {label}
+                      {!sidebarCollapsed && label}
                     </button>
                   ))}
                 </div>
+                <button
+                  onClick={() => setSidebarCollapsed((value) => !value)}
+                  className={sidebarCollapsed ? "h-10 px-0 text-muted-foreground hover:text-foreground" : "px-2 py-2.5 text-muted-foreground hover:text-foreground"}
+                  title={sidebarCollapsed ? "展开右侧栏" : "收起右侧栏"}
+                >
+                  {sidebarCollapsed ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+                </button>
               </>
             )}
           </div>
-          <div className={mindmapFullscreen ? "min-h-0 flex-1 overflow-hidden p-4" : "flex-1 overflow-auto p-4"}>
+          {(parsing || parsePhase) && !sidebarCollapsed && !mindmapFullscreen && (
+            <div className="border-b border-border bg-muted/10 px-4 py-3 text-xs">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="truncate text-muted-foreground">{parsePhase || "解析中..."}</span>
+                <span className="shrink-0 text-muted-foreground">{Math.round(parseProgress)}%</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${parseProgress}%` }} />
+              </div>
+            </div>
+          )}
+          <div className={mindmapFullscreen ? "min-h-0 flex-1 overflow-hidden p-4" : sidebarCollapsed ? "hidden" : "flex-1 overflow-auto p-4"}>
             {activeTab === "structure" && (
               <div className="space-y-4 text-sm">
                 {extracted.problem ? (
