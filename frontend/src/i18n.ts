@@ -103,6 +103,8 @@ const messages = {
     maintenance: "Maintenance",
     cachePath: "Cache path",
     clearVectorCache: "Clear vector cache",
+    exportData: "Export data",
+    exportDataFailed: "Data export failed.",
     clearVectorCacheConfirm:
       "All vector indexes will be deleted and must be rebuilt by parsing or importing papers again. Continue?",
 
@@ -377,6 +379,8 @@ const messages = {
     maintenance: "维护",
     cachePath: "缓存路径",
     clearVectorCache: "清空向量缓存",
+    exportData: "导出数据",
+    exportDataFailed: "数据导出失败。",
     clearVectorCacheConfirm:
       "清空后所有向量索引都会丢失，需要重新解析或导入论文才能恢复。确定继续？",
 

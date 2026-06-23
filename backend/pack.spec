@@ -37,6 +37,7 @@ _uv_mods, _uv_datas = _pkg("uvicorn")
 
 # ── Application analysis ────────────────────────────────────────────────────
 block_cipher = None
+_spec_root = Path(globals().get("SPECPATH", os.getcwd())).resolve()
 
 # ChromaDB root for extra data files
 import chromadb as _chromadb_mod
@@ -50,6 +51,8 @@ a = Analysis(
         # ChromaDB migrations (critical for startup)
         [
             (str(_chromadb_root / 'migrations'), 'chromadb/migrations'),
+            (str(_spec_root / 'alembic.ini'), '.'),
+            (str(_spec_root / 'alembic'), 'alembic'),
         ]
         + _sa_datas
         + _cdb_datas

@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { Database, Loader2, Trash2 } from "lucide-react";
+import { Database, Download, Loader2, Trash2 } from "lucide-react";
 import { t, type Language } from "../i18n";
+import { apiUrl } from "../lib/api";
 import { useSettingsStore } from "../stores/settingsStore";
 
 export function DataManagement() {
   const { dataStats, loadingData, fetchDataStats, clearVectorCache, language } = useSettingsStore();
   const [clearing, setClearing] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     fetchDataStats();
@@ -19,6 +21,28 @@ export function DataManagement() {
       await clearVectorCache();
     } finally {
       setClearing(false);
+    }
+  };
+
+  const exportData = async () => {
+    setExporting(true);
+    try {
+      const response = await fetch(apiUrl("settings/data/export"));
+      if (!response.ok) throw new Error(`Export failed: ${response.status}`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `research-assistant-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Data export failed:", error);
+      window.alert(t(language, "exportDataFailed"));
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -50,14 +74,24 @@ export function DataManagement() {
             <div className="text-xs text-muted-foreground">
               {t(language, "cachePath")}: <span className="text-foreground">{dataStats?.cache_path || "-"}</span>
             </div>
-            <button
-              onClick={clearCache}
-              disabled={clearing}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-destructive/40 px-3 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
-            >
-              {clearing ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-              {t(language, "clearVectorCache")}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={exportData}
+                disabled={exporting}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border px-3 text-xs text-foreground hover:bg-muted disabled:opacity-50"
+              >
+                {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                {t(language, "exportData")}
+              </button>
+              <button
+                onClick={clearCache}
+                disabled={clearing}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-destructive/40 px-3 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              >
+                {clearing ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                {t(language, "clearVectorCache")}
+              </button>
+            </div>
           </div>
         </div>
       </div>

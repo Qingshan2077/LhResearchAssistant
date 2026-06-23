@@ -2,10 +2,14 @@
 
 import argparse
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
+from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 from sqlalchemy import inspect
 
 from app.config import settings
@@ -18,10 +22,32 @@ from app.services.semantic_scholar_api import set_semantic_scholar_api_key
 from app.version import __version__
 
 
+def _run_startup_migrations() -> None:
+    """Apply database migrations on packaged first start.
+
+    PyInstaller launches can have an unpredictable current working directory, so
+    resolve alembic.ini from the backend package root instead of relying on CWD.
+    """
+    backend_root = Path(__file__).resolve().parents[1]
+    alembic_ini = backend_root / "alembic.ini"
+    if not alembic_ini.exists():
+        logger.warning("Alembic config not found at {}; skipping startup migrations", alembic_ini)
+        return
+    try:
+        config = AlembicConfig(str(alembic_ini))
+        config.set_main_option("script_location", str(backend_root / "alembic"))
+        config.set_main_option("sqlalchemy.url", f"sqlite:///{settings.db_path}")
+        alembic_command.upgrade(config, "head")
+        logger.info("Alembic migrations are up to date")
+    except Exception as exc:
+        logger.exception("Alembic migration failed: {}", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize process-wide services."""
     setup_logging()
+    _run_startup_migrations()
     if inspect(engine).has_table(AppSetting.__tablename__):
         db = SessionLocal()
         try:

@@ -1,13 +1,17 @@
 """Settings routes for providers, usage, data management, and system info."""
 
+import io
+import json
 import os
 import platform
 import shutil
+import zipfile
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import func, or_
@@ -24,6 +28,7 @@ from app.database.sqlite import (
     MindMapNode,
     Paper,
     PaperRelation,
+    PdfAnnotation,
     Project,
     SearchHistory,
     SocraticInsight,
@@ -203,10 +208,149 @@ def _utc_isoformat(value: datetime | None) -> str:
     return value.isoformat().replace("+00:00", "Z")
 
 
+
+
+def _json_safe(value):
+    if isinstance(value, datetime):
+        return _utc_isoformat(value)
+    return value
+
+
+def _model_to_dict(row, exclude: set[str] | None = None, extra: dict | None = None) -> dict:
+    exclude = exclude or set()
+    data = {
+        column.name: _json_safe(getattr(row, column.name))
+        for column in row.__table__.columns
+        if column.name not in exclude
+    }
+    if extra:
+        data.update(extra)
+    return data
+
 def _set_only_active(db: Session, provider_id: str) -> None:
     db.query(LLMProviderModel).filter(LLMProviderModel.id != provider_id).update(
         {LLMProviderModel.is_active: False},
         synchronize_session=False,
+    )
+
+
+
+
+@router.get("/settings/onboarding-status")
+def get_onboarding_status(db: Session = Depends(get_db)):
+    """Return whether first-run LLM provider setup has been completed."""
+    providers = db.query(LLMProviderModel).all()
+    has_api_key = any(bool(decrypt_api_key(provider.api_key or "").strip()) for provider in providers)
+    return {
+        "has_api_key": has_api_key,
+        "has_papers": db.query(Paper).count() > 0,
+        "onboarded": has_api_key,
+    }
+
+
+@router.get("/settings/data/export")
+def export_all_data(db: Session = Depends(get_db)):
+    """Export user metadata as a ZIP archive. Secrets and cached PDF files are excluded."""
+    exported_at = datetime.now(timezone.utc)
+    buf = io.BytesIO()
+    models = [
+        ("projects.json", Project),
+        ("papers.json", Paper),
+        ("pdf_annotations.json", PdfAnnotation),
+        ("paper_relations.json", PaperRelation),
+        ("mindmap_nodes.json", MindMapNode),
+        ("search_histories.json", SearchHistory),
+        ("llm_usage.json", LLMUsage),
+        ("socratic_messages.json", SocraticMessage),
+        ("socratic_insights.json", SocraticInsight),
+        ("idea_history.json", IdeaHistory),
+        ("writing_projects.json", WritingProject),
+    ]
+
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        counts = {}
+        for filename, model in models:
+            rows = db.query(model).all()
+            counts[filename.removesuffix(".json")] = len(rows)
+            zf.writestr(
+                filename,
+                json.dumps([_model_to_dict(row) for row in rows], ensure_ascii=False, indent=2),
+            )
+
+        sessions = db.query(SocraticSession).all()
+        counts["socratic_sessions"] = len(sessions)
+        zf.writestr(
+            "socratic_sessions.json",
+            json.dumps([_model_to_dict(session) for session in sessions], ensure_ascii=False, indent=2),
+        )
+
+        providers = db.query(LLMProviderModel).all()
+        counts["llm_providers"] = len(providers)
+        zf.writestr(
+            "llm_providers.json",
+            json.dumps(
+                [
+                    _model_to_dict(
+                        provider,
+                        exclude={"api_key"},
+                        extra={"has_api_key": bool(decrypt_api_key(provider.api_key or "").strip())},
+                    )
+                    for provider in providers
+                ],
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+        writing_root = Path(app_settings.writing_projects_dir)
+        writing_file_count = 0
+        if writing_root.exists():
+            for item in writing_root.rglob("*"):
+                if not item.is_file():
+                    continue
+                try:
+                    relative = item.relative_to(writing_root)
+                except ValueError:
+                    continue
+                zf.write(item, f"writing_project_files/{relative.as_posix()}")
+                writing_file_count += 1
+        counts["writing_project_files"] = writing_file_count
+
+        settings_rows = db.query(AppSetting).all()
+        counts["settings"] = len(settings_rows)
+        zf.writestr(
+            "settings.json",
+            json.dumps(
+                {
+                    row.key: ("<redacted>" if row.key in {"semantic_scholar_api_key"} else row.value)
+                    for row in settings_rows
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+        zf.writestr(
+            "export_info.json",
+            json.dumps(
+                {
+                    "exported_at": exported_at.isoformat().replace("+00:00", "Z"),
+                    "version": __version__,
+                    "includes_cached_pdfs": False,
+                    "includes_api_keys": False,
+                    "counts": counts,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    buf.seek(0)
+    filename = f"research-assistant-backup-{exported_at.strftime('%Y%m%d')}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
