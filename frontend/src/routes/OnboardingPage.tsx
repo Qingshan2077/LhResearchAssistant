@@ -12,7 +12,7 @@ export default function OnboardingPage({ onComplete }: { onComplete: () => void 
   const [step, setStep] = useState<Step>("welcome");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("https://api.deepseek.com");
-  const [modelName, setModelName] = useState("deepseek-chat");
+  const [modelName, setModelName] = useState("deepseek-v4-flash");
   const [error, setError] = useState("");
 
   const zh = language === "zh";
