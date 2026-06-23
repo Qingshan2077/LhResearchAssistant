@@ -54,6 +54,45 @@ class PaperResponse(PaperBase):
     model_config = {"from_attributes": True}
 
 
+class PdfAnnotationRect(BaseModel):
+    left: float
+    top: float
+    width: float
+    height: float
+
+
+class PdfAnnotationCreate(BaseModel):
+    page_number: int
+    rects: list[PdfAnnotationRect] = Field(default_factory=list)
+    highlighted_text: str = ""
+    color: str = "#fde047"
+    note: str = ""
+    annotation_type: str = "highlight"
+
+
+class PdfAnnotationUpdate(BaseModel):
+    rects: Optional[list[PdfAnnotationRect]] = None
+    highlighted_text: Optional[str] = None
+    color: Optional[str] = None
+    note: Optional[str] = None
+    annotation_type: Optional[str] = None
+
+
+class PdfAnnotationResponse(BaseModel):
+    id: str
+    paper_id: str
+    page_number: int
+    rects: list[PdfAnnotationRect] = Field(default_factory=list)
+    highlighted_text: str = ""
+    color: str = "#fde047"
+    note: str = ""
+    annotation_type: str = "highlight"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class PaperListResponse(BaseModel):
     items: list[PaperResponse]
     total: int

@@ -2,6 +2,7 @@
 
 import json
 import uuid
+import fitz
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator
@@ -14,11 +15,12 @@ from loguru import logger
 
 from app.database import SessionLocal, get_db
 from app.database.chroma_client import collection
-from app.database.sqlite import Paper, Project
+from app.database.sqlite import Paper, PdfAnnotation, Project
 from app.llm import ChatMessage, LLMConfig
 from app.llm.router import get_active_provider
 from app.models import (
     AskPapersRequest, ComparisonRequest, PaperCreate, PaperUpdate, PaperListResponse,
+    PdfAnnotationCreate, PdfAnnotationUpdate,
 )
 from app.config import settings
 from app.services.citation_graph import get_citation_graph as fetch_citation_graph
@@ -591,6 +593,108 @@ async def get_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
         content_disposition_type="inline",
     )
 
+
+def _annotation_to_response(annotation: PdfAnnotation) -> dict:
+    return {
+        "id": annotation.id,
+        "paper_id": annotation.paper_id,
+        "page_number": annotation.page_number,
+        "rects": annotation.rects or [],
+        "highlighted_text": annotation.highlighted_text or "",
+        "color": annotation.color or "#fde047",
+        "note": annotation.note or "",
+        "annotation_type": annotation.annotation_type or "highlight",
+        "created_at": annotation.created_at.isoformat() if annotation.created_at else None,
+        "updated_at": annotation.updated_at.isoformat() if annotation.updated_at else None,
+    }
+
+
+@router.get("/papers/{paper_id}/annotations")
+def list_pdf_annotations(paper_id: str, db: Session = Depends(get_db)):
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    rows = (
+        db.query(PdfAnnotation)
+        .filter(PdfAnnotation.paper_id == paper_id)
+        .order_by(PdfAnnotation.page_number.asc(), PdfAnnotation.created_at.asc())
+        .all()
+    )
+    return [_annotation_to_response(row) for row in rows]
+
+
+@router.post("/papers/{paper_id}/annotations")
+def create_pdf_annotation(paper_id: str, req: PdfAnnotationCreate, db: Session = Depends(get_db)):
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    annotation = PdfAnnotation(
+        paper_id=paper_id,
+        page_number=req.page_number,
+        rects=[rect.model_dump() for rect in req.rects],
+        highlighted_text=req.highlighted_text,
+        color=req.color,
+        note=req.note,
+        annotation_type=req.annotation_type,
+    )
+    db.add(annotation)
+    db.commit()
+    db.refresh(annotation)
+    return _annotation_to_response(annotation)
+
+
+@router.patch("/papers/{paper_id}/annotations/{annotation_id}")
+def update_pdf_annotation(paper_id: str, annotation_id: str, req: PdfAnnotationUpdate, db: Session = Depends(get_db)):
+    annotation = (
+        db.query(PdfAnnotation)
+        .filter(PdfAnnotation.id == annotation_id, PdfAnnotation.paper_id == paper_id)
+        .first()
+    )
+    if not annotation:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    if req.rects is not None:
+        annotation.rects = [rect.model_dump() for rect in req.rects]
+    if req.highlighted_text is not None:
+        annotation.highlighted_text = req.highlighted_text
+    if req.color is not None:
+        annotation.color = req.color
+    if req.note is not None:
+        annotation.note = req.note
+    if req.annotation_type is not None:
+        annotation.annotation_type = req.annotation_type
+    db.commit()
+    db.refresh(annotation)
+    return _annotation_to_response(annotation)
+
+
+@router.delete("/papers/{paper_id}/annotations/{annotation_id}")
+def delete_pdf_annotation(paper_id: str, annotation_id: str, db: Session = Depends(get_db)):
+    annotation = (
+        db.query(PdfAnnotation)
+        .filter(PdfAnnotation.id == annotation_id, PdfAnnotation.paper_id == paper_id)
+        .first()
+    )
+    if not annotation:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    db.delete(annotation)
+    db.commit()
+    return {"deleted": True}
+
+
+@router.get("/papers/{paper_id}/pdf-text")
+def get_paper_pdf_text(paper_id: str, db: Session = Depends(get_db)):
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper or not paper.pdf_path:
+        raise HTTPException(status_code=404, detail="PDF file not found")
+    pdf_path = Path(paper.pdf_path)
+    if not pdf_path.exists() or not pdf_path.is_file():
+        raise HTTPException(status_code=404, detail="PDF file not found")
+    doc = fitz.open(str(pdf_path))
+    try:
+        pages = [{"page": index + 1, "text": page.get_text()} for index, page in enumerate(doc)]
+        return {"pages": pages, "total_pages": len(pages)}
+    finally:
+        doc.close()
 
 @router.post("/papers/{paper_id}/download-pdf")
 async def download_paper_pdf(paper_id: str, db: Session = Depends(get_db)):

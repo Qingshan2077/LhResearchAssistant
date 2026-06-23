@@ -95,6 +95,28 @@ class Paper(Base):
         cascade="all, delete-orphan",
     )
     mindmap_nodes = relationship("MindMapNode", back_populates="paper", cascade="all, delete-orphan")
+    pdf_annotations = relationship("PdfAnnotation", back_populates="paper", cascade="all, delete-orphan")
+
+
+
+
+class PdfAnnotation(Base):
+    """PDF highlights and reader annotations."""
+
+    __tablename__ = "pdf_annotations"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    paper_id = Column(String(36), ForeignKey("papers.id"), nullable=False, index=True)
+    page_number = Column(Integer, nullable=False)
+    rects = Column(JSON, default=list)
+    highlighted_text = Column(Text, default="")
+    color = Column(String(16), default="#fde047")
+    note = Column(Text, default="")
+    annotation_type = Column(String(16), default="highlight")
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+    paper = relationship("Paper", back_populates="pdf_annotations")
 
 
 # ── 论文关系 ──────────────────────────────────────

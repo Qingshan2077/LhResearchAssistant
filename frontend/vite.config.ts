@@ -7,6 +7,9 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
+  optimizeDeps: {
+    include: ["pdfjs-dist"],
+  },
   server: {
     port: 1420,
     strictPort: true,

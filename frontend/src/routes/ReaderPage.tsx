@@ -1,6 +1,9 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { api, apiUrl, type CitationGraphData, type CitationGraphNode, type Paper } from "../lib/api";
+import { AnnotationSummaryPanel } from "../components/AnnotationSummaryPanel";
+import { PdfViewer } from "../components/PdfViewer";
+import type { NewPdfAnnotation, PdfAnnotation } from "../components/pdfTypes";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
 import {
   ArrowLeft,
@@ -12,6 +15,7 @@ import {
   Download,
   FileText,
   GitBranch,
+  Highlighter,
   Loader2,
   Maximize2,
   MessageSquare,
@@ -36,7 +40,7 @@ import { t, type Language } from "../i18n";
 import { useSettingsStore } from "../stores/settingsStore";
 import { ChatPanel } from "../components/ChatPanel";
 
-type Tab = "structure" | "mindmap" | "notes" | "citations" | "citation_graph" | "chat";
+type Tab = "structure" | "mindmap" | "notes" | "citations" | "annotations" | "citation_graph" | "chat";
 
 type CitationStatus = {
   total: number;
@@ -54,6 +58,9 @@ export default function ReaderPage() {
   const [parsing, setParsing] = useState(false);
   const [notes, setNotes] = useState("");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfFallback, setPdfFallback] = useState(false);
+  const [pdfAnnotations, setPdfAnnotations] = useState<PdfAnnotation[]>([]);
+  const [pdfJumpPage, setPdfJumpPage] = useState<number | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [verifyingCitations, setVerifyingCitations] = useState(false);
   const [verificationProgress, setVerificationProgress] = useState("");
@@ -93,6 +100,9 @@ export default function ReaderPage() {
     if (!id) return;
     setCitationGraph(null);
     setGraphError("");
+    setPdfFallback(false);
+    setPdfAnnotations([]);
+    setPdfJumpPage(null);
     api
       .get(`papers/${id}`)
       .json<Paper>()
@@ -117,6 +127,11 @@ export default function ReaderPage() {
       .json<CitationStatus>()
       .then(setCitationStatus)
       .catch(() => undefined);
+    api
+      .get(`papers/${id}/annotations`)
+      .json<PdfAnnotation[]>()
+      .then(setPdfAnnotations)
+      .catch(() => setPdfAnnotations([]));
   }, [id, fetchMindMap]);
 
   useEffect(() => {
@@ -182,6 +197,20 @@ export default function ReaderPage() {
   const handleSaveNotes = async () => {
     if (!id) return;
     await api.patch(`papers/${id}`, { json: { notes } });
+  };
+
+  const createPdfAnnotation = async (annotation: NewPdfAnnotation) => {
+    if (!id) return;
+    const saved = await api
+      .post(`papers/${id}/annotations`, { json: annotation })
+      .json<PdfAnnotation>();
+    setPdfAnnotations((current) => [...current, saved]);
+  };
+
+  const deletePdfAnnotation = async (annotationId: string) => {
+    if (!id) return;
+    await api.delete(`papers/${id}/annotations/${annotationId}`);
+    setPdfAnnotations((current) => current.filter((item) => item.id !== annotationId));
   };
 
   const handleDownloadPdf = async () => {
@@ -306,31 +335,44 @@ export default function ReaderPage() {
               <span className="text-xs text-muted-foreground">No PDF URL</span>
             )}
           </div>
-          <div className="flex-1 flex items-center justify-center bg-muted/20">
-            {paper.pdf_path ? (
-              <iframe
-                key={pdfUrl || paper.pdf_path}
-                title={paper.title}
-                src={pdfUrl || apiUrl(`papers/${id}/pdf`)}
-                className="h-full w-full border-0 bg-background"
-              />
+          <div className="min-h-0 flex-1 bg-muted/20">
+            {paper.pdf_path && pdfUrl ? (
+              pdfFallback ? (
+                <iframe
+                  key={pdfUrl || paper.pdf_path}
+                  title={paper.title}
+                  src={pdfUrl || apiUrl(`papers/${id}/pdf`)}
+                  className="h-full w-full border-0 bg-background"
+                />
+              ) : (
+                <PdfViewer
+                  pdfUrl={pdfUrl}
+                  paperId={id!}
+                  annotations={pdfAnnotations}
+                  jumpToPage={pdfJumpPage}
+                  onAnnotationAdd={createPdfAnnotation}
+                  onFallbackOpen={() => setPdfFallback(true)}
+                />
+              )
             ) : (
-              <div className="text-center p-8 text-muted-foreground">
-                <FileText size={48} className="mx-auto mb-4 opacity-50" />
-                <p className="text-sm">{t(language, "pdfCannotDisplay")}</p>
-                <p className="text-xs mt-1">
-                  {paper.pdf_download_error || (paper.pdf_url ? t(language, "pdfNotDownloaded") : t(language, "pdfNoOpenAccess"))}
-                </p>
-                {paper.pdf_url && (
-                  <button
-                    onClick={handleDownloadPdf}
-                    disabled={downloadingPdf}
-                    className="mt-4 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-foreground hover:bg-muted disabled:opacity-50"
-                  >
-                    {downloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                    {t(language, "downloadAndOpenPdf")}
-                  </button>
-                )}
+              <div className="flex h-full items-center justify-center text-center p-8 text-muted-foreground">
+                <div>
+                  <FileText size={48} className="mx-auto mb-4 opacity-50" />
+                  <p className="text-sm">{t(language, "pdfCannotDisplay")}</p>
+                  <p className="text-xs mt-1">
+                    {paper.pdf_download_error || (paper.pdf_url ? t(language, "pdfNotDownloaded") : t(language, "pdfNoOpenAccess"))}
+                  </p>
+                  {paper.pdf_url && (
+                    <button
+                      onClick={handleDownloadPdf}
+                      disabled={downloadingPdf}
+                      className="mt-4 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-foreground hover:bg-muted disabled:opacity-50"
+                    >
+                      {downloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                      {t(language, "downloadAndOpenPdf")}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -354,6 +396,7 @@ export default function ReaderPage() {
                     { key: "mindmap", label: "\u601d\u7ef4\u56fe", icon: BookOpen },
                     { key: "notes", label: "\u7b14\u8bb0", icon: MessageSquare },
                     { key: "citations", label: "\u5f15\u7528", icon: ShieldCheck },
+                    { key: "annotations", label: "\u6279\u6ce8", icon: Highlighter },
                     { key: "chat", label: "\u5bf9\u8bdd", icon: Bot },
                     { key: "citation_graph", label: "\u5f15\u7528\u56fe", icon: GitBranch },
                   ] as const).map(({ key, label, icon: Icon }) => (
@@ -480,6 +523,17 @@ export default function ReaderPage() {
                 verifying={verifyingCitations}
                 onVerify={handleVerifyCitations}
                 language={language}
+              />
+            )}
+
+            {activeTab === "annotations" && (
+              <AnnotationSummaryPanel
+                annotations={pdfAnnotations}
+                onJumpToPage={(page) => {
+                  setPdfJumpPage(page);
+                  window.setTimeout(() => setPdfJumpPage(null), 0);
+                }}
+                onDeleteAnnotation={(annotationId) => void deletePdfAnnotation(annotationId)}
               />
             )}
 
