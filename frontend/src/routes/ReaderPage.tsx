@@ -13,7 +13,9 @@ import {
   FileText,
   GitBranch,
   Loader2,
+  Maximize2,
   MessageSquare,
+  Minimize2,
   Plus,
   Save,
   ShieldCheck,
@@ -25,6 +27,7 @@ import ReactFlow, {
   Controls,
   type Edge,
   type Node,
+  type ReactFlowInstance,
   useEdgesState,
   useNodesState,
 } from "reactflow";
@@ -58,6 +61,7 @@ export default function ReaderPage() {
   const [citationGraph, setCitationGraph] = useState<CitationGraphData | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphError, setGraphError] = useState("");
+  const [mindmapFullscreen, setMindmapFullscreen] = useState(false);
 
   const mindmapData = useKnowledgeStore((s) => s.mindmapData);
   const fetchMindMap = useKnowledgeStore((s) => s.fetchMindMap);
@@ -120,6 +124,17 @@ export default function ReaderPage() {
       fetchCitationGraph();
     }
   }, [activeTab, citationGraph, graphLoading, graphError]);
+
+  useEffect(() => {
+    if (!mindmapFullscreen) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMindmapFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [mindmapFullscreen]);
 
   const handleParse = async () => {
     if (!id) return;
@@ -322,34 +337,44 @@ export default function ReaderPage() {
         </div>
 
         {/* 右侧面板 */}
-        <div className="w-[400px] border border-border rounded-lg overflow-hidden flex flex-col shrink-0">
+        <div className={mindmapFullscreen ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-background" : "w-[400px] border border-border rounded-lg overflow-hidden flex flex-col shrink-0"}>
           {/* Tab 切换 */}
-          <div className="flex border-b border-border bg-muted/20">
-            {([
-              { key: "structure", label: "结构化", icon: Brain },
-              { key: "mindmap", label: "思维图", icon: BookOpen },
-              { key: "notes", label: "笔记", icon: MessageSquare },
-              { key: "citations", label: "引用", icon: ShieldCheck },
-              { key: "chat", label: "对话", icon: Bot },
-              { key: "citation_graph", label: "引用图", icon: GitBranch },
-            ] as const).map(({ key, label, icon: Icon }) => (
-              <button
-                key={key}
-                onClick={() => setActiveTab(key)}
-                className={`flex-1 px-3 py-2.5 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
-                  activeTab === key
-                    ? "text-primary border-b-2 border-primary bg-primary/5"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Icon size={14} />
-                {label}
-              </button>
-            ))}
+          <div className={mindmapFullscreen ? "flex items-center justify-between border-b border-border bg-background px-4 py-3" : "flex border-b border-border bg-muted/20"}>
+            {mindmapFullscreen ? (
+              <>
+                <div className="min-w-0 truncate text-sm font-medium">
+                  {"\u601d\u7ef4\u56fe"} · <span className="text-muted-foreground">{paper.title}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex min-w-0 flex-1">
+                  {([
+                    { key: "structure", label: "\u7ed3\u6784\u5316", icon: Brain },
+                    { key: "mindmap", label: "\u601d\u7ef4\u56fe", icon: BookOpen },
+                    { key: "notes", label: "\u7b14\u8bb0", icon: MessageSquare },
+                    { key: "citations", label: "\u5f15\u7528", icon: ShieldCheck },
+                    { key: "chat", label: "\u5bf9\u8bdd", icon: Bot },
+                    { key: "citation_graph", label: "\u5f15\u7528\u56fe", icon: GitBranch },
+                  ] as const).map(({ key, label, icon: Icon }) => (
+                    <button
+                      key={key}
+                      onClick={() => setActiveTab(key)}
+                      className={`flex-1 px-3 py-2.5 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                        activeTab === key
+                          ? "text-primary border-b-2 border-primary bg-primary/5"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <Icon size={14} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
-
-          {/* Tab 内容 */}
-          <div className="flex-1 overflow-auto p-4">
+          <div className={mindmapFullscreen ? "min-h-0 flex-1 overflow-hidden p-4" : "flex-1 overflow-auto p-4"}>
             {activeTab === "structure" && (
               <div className="space-y-4 text-sm">
                 {extracted.problem ? (
@@ -418,6 +443,9 @@ export default function ReaderPage() {
                   <MindMapView
                     paperId={id!}
                     nodes={mindmapData[id!].nodes}
+                    isFullscreen={mindmapFullscreen}
+                    onEnterFullscreen={() => setMindmapFullscreen(true)}
+                    onExitFullscreen={() => setMindmapFullscreen(false)}
                     onSave={(nextNodes) => saveMindMap(id!, nextNodes)}
                   />
                 ) : (
@@ -775,15 +803,22 @@ type MindMapEditState = {
 function MindMapView({
   paperId,
   nodes,
+  isFullscreen = false,
+  onEnterFullscreen,
+  onExitFullscreen,
   onSave,
 }: {
   paperId: string;
   nodes: MindMapNode[];
+  isFullscreen?: boolean;
+  onEnterFullscreen?: () => void;
+  onExitFullscreen?: () => void;
   onSave: (nodes: MindMapNode[]) => Promise<void>;
 }) {
   const { flowNodes, flowEdges } = useMemo(() => toFlowElements(nodes), [nodes]);
   const [reactFlowNodes, setReactFlowNodes, onNodesChange] = useNodesState(flowNodes);
   const [reactFlowEdges, setReactFlowEdges, onEdgesChange] = useEdgesState(flowEdges);
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [contextMenu, setContextMenu] = useState<MindMapContextMenu>(null);
   const [editing, setEditing] = useState<MindMapEditState>(null);
   const [saving, setSaving] = useState(false);
@@ -792,6 +827,24 @@ function MindMapView({
     setReactFlowNodes(flowNodes);
     setReactFlowEdges(flowEdges);
   }, [flowNodes, flowEdges, setReactFlowEdges, setReactFlowNodes]);
+
+  useEffect(() => {
+    if (!reactFlowInstance || reactFlowNodes.length === 0) return;
+    const fit = () => {
+      reactFlowInstance.fitView({
+        padding: isFullscreen ? 0.08 : 0.24,
+        duration: 260,
+      });
+    };
+    const frame = window.requestAnimationFrame(fit);
+    const timer = window.setTimeout(fit, 120);
+    const finalTimer = window.setTimeout(fit, 320);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+      window.clearTimeout(finalTimer);
+    };
+  }, [isFullscreen, reactFlowInstance, reactFlowNodes.length]);
 
   if (nodes.length === 0) {
     return <div className="text-muted-foreground text-sm">Empty mind map</div>;
@@ -921,7 +974,17 @@ function MindMapView({
 
   return (
     <div className="relative h-full min-h-[420px] overflow-hidden rounded-lg border border-border bg-background">
-      <div className="absolute right-2 top-2 z-10">
+      <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
+        {(onEnterFullscreen || onExitFullscreen) && (
+          <button
+            onClick={isFullscreen ? onExitFullscreen : onEnterFullscreen}
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs shadow hover:bg-muted"
+            title={isFullscreen ? "退出全屏" : "全屏查看思维图"}
+          >
+            {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            {isFullscreen ? "退出全屏" : "全屏"}
+          </button>
+        )}
         <button
           onClick={save}
           disabled={saving}
@@ -932,11 +995,12 @@ function MindMapView({
         </button>
       </div>
       <ReactFlow
-        key={nodes.map((node) => node.id).join(":")}
+        key={`${isFullscreen ? "fullscreen" : "panel"}:${nodes.map((node) => node.id).join(":")}`}
         nodes={reactFlowNodes}
         edges={reactFlowEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onInit={setReactFlowInstance}
         onNodeDoubleClick={(_, node) => editNode(node.id)}
         onNodeContextMenu={(event, node) => {
           event.preventDefault();
