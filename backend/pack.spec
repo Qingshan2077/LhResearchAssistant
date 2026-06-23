@@ -69,7 +69,7 @@ a = Analysis(
             'app.database.usage_tracker',
             'app.llm',
             'app.llm.router',
-            'app.llm.providers',
+            # providers are individual files under app/llm/ (deepseek, openai_compat, ollama)
             'app.agents',
             'app.agents.review_agent',
             'app.agents.idea_agent',

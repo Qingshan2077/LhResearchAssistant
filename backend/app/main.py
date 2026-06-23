@@ -86,6 +86,13 @@ app.include_router(socratic.router, prefix="/api/v1", tags=["ideas"])
 
 
 if __name__ == "__main__":
+    # PyInstaller fix: console=False leaves sys.stdout/stderr as None,
+    # which crashes uvicorn.logging (calls .isatty() on None).
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")
+
     parser = argparse.ArgumentParser(description="Research Assistant backend")
     parser.add_argument("--host", default=settings.host)
     parser.add_argument("--port", type=int, default=settings.port)
