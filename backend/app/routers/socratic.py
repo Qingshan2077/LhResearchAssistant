@@ -80,6 +80,7 @@ def list_socratic_history(
             "id": row.id,
             "title": row.title or "Socratic Session",
             "turn_count": row.turn_count or 0,
+            "message_count": db.query(SocraticMessageModel).filter(SocraticMessageModel.session_id == row.id).count(),
             "layer": row.layer or 1,
             "insights_count": len(row.insights_list or []),
             "has_summary": bool(row.summary_json),

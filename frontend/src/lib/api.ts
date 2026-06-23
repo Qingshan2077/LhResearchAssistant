@@ -105,6 +105,7 @@ export type SocraticHistoryItem = {
   id: string;
   title: string;
   turn_count: number;
+  message_count: number;
   layer: number;
   insights_count: number;
   has_summary: boolean;

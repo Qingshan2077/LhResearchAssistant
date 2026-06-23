@@ -396,7 +396,7 @@ export default function IdeaPage() {
                       </option>
                       {availableSessions.map((session) => (
                         <option key={session.id} value={session.id}>
-                          {session.title || `Socratic ${formatHistoryDate(session.created_at, language)}`} · {session.turn_count} {t(language, "socraticTurns")} · {formatHistoryDate(session.created_at, language)}
+                          {session.title || `Socratic ${formatHistoryDate(session.created_at, language)}`} · {session.turn_count} {t(language, "socraticTurns")} / {session.message_count ?? 0} messages · {formatHistoryDate(session.created_at, language)}
                         </option>
                       ))}
                     </select>

@@ -833,10 +833,35 @@ def save_to_db(session_id: str, db: Session, *, end_session: bool = False) -> So
     if end_session:
         session.is_active = False
 
+    message_snapshots = []
+    for index, message in enumerate(session.messages):
+        role = str(message.get("role") or "")
+        message_content = str(message.get("content") or "")
+        if role not in {"user", "assistant"} or not message_content:
+            continue
+        message_snapshots.append((index, role, message_content))
+
     record = db.get(SocraticSessionModel, session_id)
     if record is None:
         record = SocraticSessionModel(id=session_id)
         db.add(record)
+    else:
+        persisted_message_count = (
+            db.query(SocraticMessageModel)
+            .filter(SocraticMessageModel.session_id == session_id)
+            .count()
+        )
+        if persisted_message_count > len(message_snapshots):
+            logger.warning(
+                "Skipped Socratic session {} save because the in-memory snapshot has fewer messages "
+                "({}) than the persisted history ({}).",
+                session_id,
+                len(message_snapshots),
+                persisted_message_count,
+            )
+            db.refresh(record)
+            session.title = record.title or session.title
+            return record
 
     record.project_id = _ensure_project(db, session.project_id)
     record.title = _session_title(session)
@@ -857,11 +882,7 @@ def save_to_db(session_id: str, db: Session, *, end_session: bool = False) -> So
 
     db.query(SocraticMessageModel).filter(SocraticMessageModel.session_id == session_id).delete(synchronize_session=False)
     db.query(SocraticInsightModel).filter(SocraticInsightModel.session_id == session_id).delete(synchronize_session=False)
-    for index, message in enumerate(session.messages):
-        role = str(message.get("role") or "")
-        message_content = str(message.get("content") or "")
-        if role not in {"user", "assistant"} or not message_content:
-            continue
+    for index, role, message_content in message_snapshots:
         db.add(SocraticMessageModel(
             session_id=session_id,
             role=role,
@@ -889,8 +910,12 @@ def save_to_db(session_id: str, db: Session, *, end_session: bool = False) -> So
     return record
 
 
-def load_from_db(session_id: str, db: Session) -> SocraticSession | None:
-    """Restore a persisted session into memory as a read-only history snapshot."""
+def load_from_db(session_id: str, db: Session, *, cache: bool = False) -> SocraticSession | None:
+    """Restore a persisted session as a history snapshot.
+
+    History reads are read-only by default. Callers that explicitly need to resume
+    a persisted session may opt into updating the in-memory session cache.
+    """
     record = db.get(SocraticSessionModel, session_id)
     if record is None:
         return None
@@ -926,7 +951,8 @@ def load_from_db(session_id: str, db: Session) -> SocraticSession | None:
         title=record.title or "",
         summary=dict(record.summary_json) if isinstance(record.summary_json, dict) else None,
     )
-    sessions[session_id] = session
+    if cache:
+        sessions[session_id] = session
     return session
 
 

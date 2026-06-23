@@ -160,7 +160,7 @@ export default function IdeaSocraticPage() {
                   <button onClick={() => void openHistory(item.id)} className="min-w-0 flex-1 text-left">
                     <div className="truncate text-sm font-medium">{item.title}</div>
                     <div className="mt-1 text-[11px] text-muted-foreground">
-                      {item.turn_count} turns · Layer {item.layer} · {formatHistoryDate(item.updated_at, language)}
+                      {item.turn_count} turns / {item.message_count ?? 0} messages · Layer {item.layer} · {formatHistoryDate(item.updated_at, language)}
                     </div>
                   </button>
                   <button onClick={() => void removeHistory(item.id)} className="rounded p-1 text-muted-foreground hover:text-destructive">
