@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, BrainCircuit, CheckCircle2, History, Lightbulb, Loader2, Plus, Send, Square, Target, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import { useNavigate } from "react-router-dom";
@@ -52,6 +52,7 @@ export default function IdeaSocraticPage() {
   const [draft, setDraft] = useState("");
   const [initial, setInitial] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const messageScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     void fetchHistory();
@@ -59,6 +60,15 @@ export default function IdeaSocraticPage() {
       void closeSession(false);
     };
   }, [closeSession, fetchHistory]);
+
+  useEffect(() => {
+    const container = messageScrollRef.current;
+    if (!container) return;
+    const frame = window.requestAnimationFrame(() => {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages.length, sessionId, historyView]);
 
   const activeSignals = useMemo(
     () => Object.values(convergence || {}).filter(Boolean).length,
@@ -216,7 +226,7 @@ export default function IdeaSocraticPage() {
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto p-4">
+            <div ref={messageScrollRef} className="min-h-0 flex-1 overflow-auto p-4">
               <div className="grid gap-3">
                 {messages.map((message, index) => (
                   <div
