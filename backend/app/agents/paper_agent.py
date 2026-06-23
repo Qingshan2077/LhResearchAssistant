@@ -81,7 +81,7 @@ async def generate_review(
     """生成文献综述（SSE 流式）"""
     # 获取活跃 LLM
     if db:
-        provider, config = get_active_provider(db)
+        provider, config = get_active_provider(db, function_name="search")
     else:
         from app.llm.deepseek import DeepSeekProvider
         from app.llm import LLMConfig
@@ -123,7 +123,7 @@ async def generate_review(
 async def expand_query(query: str, db: Session | None = None) -> str:
     """扩展搜索关键词 — 生成同义词和相关概念"""
     if db:
-        provider, config = get_active_provider(db)
+        provider, config = get_active_provider(db, function_name="search")
     else:
         from app.llm.deepseek import DeepSeekProvider
         from app.llm import LLMConfig

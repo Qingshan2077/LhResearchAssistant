@@ -12,6 +12,7 @@ class LLMConfig:
     model: str = ""
     max_tokens: int = 8192
     temperature: float = 0.7
+    function_name: str = ""       # 显式功能分类，覆盖 _infer_function_name() 的栈帧猜测
 
 
 @dataclass

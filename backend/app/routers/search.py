@@ -230,7 +230,7 @@ async def categorize_papers(req: CategorizeRequest, db: Session = Depends(get_db
         return {"groups": [], "uncategorized": [req.papers[0].id]}
 
     fallback = _fallback_categorize(req.papers)
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="search")
     if not _can_use_llm(config):
         return fallback
 
@@ -256,13 +256,10 @@ async def categorize_papers(req: CategorizeRequest, db: Session = Depends(get_db
 }}"""
     raw = ""
     try:
-        raw = await provider.chat(
-            [
-                ChatMessage(role="system", content="You classify research paper titles into coherent topic groups."),
-                ChatMessage(role="user", content=prompt),
-            ],
-            config,
-        )
+        raw = await provider.chat([
+            ChatMessage(role="system", content="You classify research paper titles into coherent topic groups."),
+            ChatMessage(role="user", content=prompt),
+        ], config)
         normalized = _normalize_categories(req.papers, _parse_json_object(raw))
         return normalized if normalized["groups"] else fallback
     except Exception as exc:

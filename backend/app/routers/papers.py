@@ -143,7 +143,7 @@ async def _ask_papers_stream(req: AskPapersRequest) -> AsyncIterator[dict]:
             yield _as_sse({"type": "done"})
             return
 
-        provider, config = get_active_provider(db)
+        provider, config = get_active_provider(db, function_name="read")
         top_k = max(1, min(req.top_k, 20))
         chunks: list[str] = []
         try:
@@ -336,7 +336,7 @@ async def compare_papers(req: ComparisonRequest, db: Session = Depends(get_db)):
     if not ordered:
         raise HTTPException(status_code=404, detail="No papers found")
 
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="read")
     return await generate_comparison_table(
         [_paper_brief(paper) for paper in ordered],
         req.dimensions,

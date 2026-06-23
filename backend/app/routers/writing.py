@@ -149,7 +149,7 @@ async def generate_section_endpoint(
     if not project:
         raise HTTPException(status_code=404, detail="Writing project not found")
 
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="writing")
     return EventSourceResponse(
         generate_section(
             outline=project.outline or [],
@@ -176,7 +176,7 @@ async def generate_outline_endpoint(
         raise HTTPException(status_code=404, detail="Writing project not found")
 
     papers = db.query(Paper).filter(Paper.id.in_(req.paper_ids)).all() if req.paper_ids else []
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="writing")
     project.outline = await generate_outline(
         title=req.title or project.title,
         papers=papers,
@@ -192,7 +192,7 @@ async def generate_outline_endpoint(
 @router.post("/writing/polish")
 async def polish(req: PolishRequest, db: Session = Depends(get_db)):
     """Polish academic text."""
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="writing")
     polished = await polish_text(
         text=req.text,
         style=req.style,

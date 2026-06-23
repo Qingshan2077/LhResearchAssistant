@@ -42,7 +42,7 @@ async def _as_sse(events: AsyncIterator[dict]):
 @router.post("/review/recommend-venues", response_model=VenueRecommendResponse)
 async def recommend_venues_endpoint(req: VenueRecommendRequest, db: Session = Depends(get_db)):
     """Recommend CS publication venues for a manuscript."""
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="review")
     method_keywords = list(req.keywords)
     if req.method_description:
         method_keywords.append(req.method_description)
@@ -74,7 +74,7 @@ async def check_format_endpoint(req: FormatCheckRequest, db: Session = Depends(g
 @router.post("/review/simulate")
 async def simulate_review(req: ReviewSimulateRequest, db: Session = Depends(get_db)):
     """Stream simulated peer-review cards and a meta-review."""
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="review")
     return EventSourceResponse(
         _as_sse(review_paper_simulation(
             project_id=req.writing_project_id,
@@ -90,7 +90,7 @@ async def simulate_review(req: ReviewSimulateRequest, db: Session = Depends(get_
 @router.post("/review/generate-cover-letter")
 async def generate_cover_letter_endpoint(req: CoverLetterRequest, db: Session = Depends(get_db)):
     """Generate an academic cover letter."""
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="review")
     content = await generate_cover_letter(
         project_id=req.writing_project_id,
         venue=req.venue,
@@ -106,7 +106,7 @@ async def generate_cover_letter_endpoint(req: CoverLetterRequest, db: Session = 
 @router.post("/review/generate-rebuttal")
 async def generate_rebuttal_endpoint(req: RebuttalRequest, db: Session = Depends(get_db)):
     """Generate a rebuttal letter from review text."""
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="review")
     content = await generate_rebuttal(
         project_id=req.writing_project_id,
         review_text=req.review_text,
@@ -121,7 +121,7 @@ async def generate_rebuttal_endpoint(req: RebuttalRequest, db: Session = Depends
 @router.post("/review/check-writing-quality", response_model=WritingQualityCheckResult)
 async def check_writing_quality_endpoint(req: WritingQualityCheckRequest, db: Session = Depends(get_db)):
     """Check a writing project's text for AI-typical writing patterns."""
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="review")
 
     if req.text.strip():
         text = req.text
@@ -143,7 +143,7 @@ async def check_writing_quality_endpoint(req: WritingQualityCheckRequest, db: Se
 @router.post("/review/score-rebuttal", response_model=RebuttalScoreResponse)
 async def score_rebuttal_endpoint(req: RebuttalScoreRequest, db: Session = Depends(get_db)):
     """Score author rebuttals against DA criticisms using the 1-5 scoring protocol."""
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="review")
 
     criticisms = [{"id": c.id, "finding": c.finding, "severity": c.severity} for c in req.criticisms]
     rebuttals = [{"criticism_id": r.criticism_id, "response": r.response} for r in req.rebuttals]
@@ -167,5 +167,5 @@ async def run_failure_checklist_endpoint(req: FailureChecklistRequest, db: Sessi
     if not text:
         raise HTTPException(status_code=400, detail="No text available for checklist")
 
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="review")
     return await run_failure_checklist(text=text, provider=provider, config=config)

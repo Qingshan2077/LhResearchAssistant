@@ -118,7 +118,7 @@ async def knowledge_query(req: KnowledgeQuery, db: Session = Depends(get_db)):
     answer = f"Found {len(papers)} relevant papers in your knowledge base."
     if req.include_graph_context:
         try:
-            provider, config = get_active_provider(db)
+            provider, config = get_active_provider(db, function_name="read")
             answer = await provider.chat([
                 ChatMessage(role="system", content="Answer using only the retrieved paper context. Cite source paper titles when possible."),
                 ChatMessage(role="user", content=f"Question: {req.query}\n\nRetrieved context:\n{context}"),

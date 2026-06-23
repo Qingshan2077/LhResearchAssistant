@@ -25,7 +25,7 @@ def _as_sse(event: dict) -> dict:
 
 async def _generate_ideas_sse(req: IdeaRequest, db: Session) -> AsyncIterator[dict]:
     """Adapt idea-agent events to the wire format expected by sse-starlette."""
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="idea")
     async for event in generate_ideas(
         paper_ids=req.paper_ids,
         mode=req.mode,
@@ -144,7 +144,7 @@ async def generate_ideas_endpoint(req: IdeaRequest, db: Session = Depends(get_db
 @router.post("/ideas/evaluate")
 async def evaluate_idea(req: IdeaEvaluateRequest, db: Session = Depends(get_db)):
     """Evaluate the feasibility of one research idea."""
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="idea")
     return await evaluate_feasibility(
         idea=req.idea,
         context_paper_ids=req.context_paper_ids,

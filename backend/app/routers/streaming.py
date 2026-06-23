@@ -28,9 +28,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 # 获取 Provider
                 if provider_id:
                     from app.llm.router import get_provider_by_id
-                    result = get_provider_by_id(provider_id, db)
+                    result = get_provider_by_id(provider_id, db, function_name="chat")
                 else:
-                    result = get_active_provider(db)
+                    result = get_active_provider(db, function_name="chat")
 
                 if not result:
                     await websocket.send_json({

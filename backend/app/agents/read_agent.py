@@ -67,7 +67,7 @@ async def parse_paper_structure(paper: Paper, db: Session) -> AsyncGenerator[dic
     yield {"type": "progress", "phase": "analyzing_structure", "paper_id": paper.id}
 
     # Step 2: LLM 结构化提取
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="read")
     messages = [
         ChatMessage(role="system", content=EXTRACT_PROMPT),
         ChatMessage(role="user", content=f"Paper title: {paper.title}\n\nPaper text:\n{text}"),

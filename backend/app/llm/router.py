@@ -35,7 +35,7 @@ DEFAULT_MODELS: dict[str, str] = {
 }
 
 
-def get_active_provider(db: Session) -> tuple[LLMProvider, LLMConfig]:
+def get_active_provider(db: Session, function_name: str = "") -> tuple[LLMProvider, LLMConfig]:
     """从 DB 获取最高优先级的活跃 Provider。无配置时返回 DeepSeek（无 key 的占位）"""
     record = (
         db.query(LLMProviderModel)
@@ -51,6 +51,7 @@ def get_active_provider(db: Session) -> tuple[LLMProvider, LLMConfig]:
             api_key=settings.default_deepseek_api_key,
             base_url=settings.default_deepseek_base_url,
             model=settings.default_deepseek_model,
+            function_name=function_name,
         )
         return UsageTrackingProvider(cls(), db, provider_name="deepseek"), cfg
 
@@ -61,12 +62,13 @@ def get_active_provider(db: Session) -> tuple[LLMProvider, LLMConfig]:
         model=record.default_model or DEFAULT_MODELS.get(record.name, ""),
         max_tokens=record.max_tokens,
         temperature=record.temperature,
+        function_name=function_name,
     )
     provider_name = record.display_name or record.name
     return UsageTrackingProvider(cls(), db, provider_id=record.id, provider_name=provider_name), cfg
 
 
-def get_provider_by_id(provider_id: str, db: Session) -> tuple[LLMProvider, LLMConfig] | None:
+def get_provider_by_id(provider_id: str, db: Session, function_name: str = "") -> tuple[LLMProvider, LLMConfig] | None:
     """根据 provider_id 获取特定 Provider"""
     record = db.query(LLMProviderModel).filter(LLMProviderModel.id == provider_id).first()
     if not record:
@@ -79,6 +81,7 @@ def get_provider_by_id(provider_id: str, db: Session) -> tuple[LLMProvider, LLMC
         model=record.default_model or DEFAULT_MODELS.get(record.name, ""),
         max_tokens=record.max_tokens,
         temperature=record.temperature,
+        function_name=function_name,
     )
     provider_name = record.display_name or record.name
     return UsageTrackingProvider(cls(), db, provider_id=record.id, provider_name=provider_name), cfg

@@ -32,7 +32,7 @@ router = APIRouter()
 
 @router.post("/ideas/socratic/create")
 async def create_socratic_session(req: CreateSocraticRequest, db: Session = Depends(get_db)):
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="socratic")
     session_id = await create_session(req.project_id, provider, config, initial_message=req.initial_message)
     return {"session_id": session_id}
 
@@ -115,7 +115,7 @@ def delete_socratic_history(session_id: str, db: Session = Depends(get_db)):
 async def get_socratic_summary(session_id: str, db: Session = Depends(get_db)):
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Socratic session not found")
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="socratic")
     summary = await generate_summary(session_id, provider, config)
     save_to_db(session_id, db)
     return summary
@@ -126,21 +126,21 @@ async def get_research_question(session_id: str, db: Session = Depends(get_db)):
     """Generate a FINER-scored research question from the Socratic dialogue."""
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Socratic session not found")
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="socratic")
     return await generate_research_question(session_id, provider, config)
 
 
 @router.post("/ideas/socratic/methodology")
 async def get_methodology_blueprint(rq: str = "", context: str = "", db: Session = Depends(get_db)):
     """Generate a methodology blueprint from a research question."""
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="socratic")
     return await generate_methodology_blueprint(rq=rq, context=context, provider=provider, config=config)
 
 
 @router.post("/ideas/socratic/devils-advocate")
 async def get_devils_advocate(rq: str = "", methodology: str = "", db: Session = Depends(get_db)):
     """Run a Devil's Advocate stress-test on a research plan."""
-    provider, config = get_active_provider(db)
+    provider, config = get_active_provider(db, function_name="socratic")
     return await run_devils_advocate(rq=rq, methodology=methodology, provider=provider, config=config)
 
 
@@ -154,7 +154,7 @@ async def socratic_chat(websocket: WebSocket, session_id: str):
 
     db = SessionLocal()
     try:
-        provider, config = get_active_provider(db)
+        provider, config = get_active_provider(db, function_name="socratic")
         await websocket.send_json({
             "type": "ready",
             "content": "Socratic Mentor 已连接。先告诉我你现在的研究想法或困惑。",

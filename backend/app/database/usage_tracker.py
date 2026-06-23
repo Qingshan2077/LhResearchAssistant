@@ -94,7 +94,7 @@ class UsageTrackingProvider(LLMProvider):
 
     async def chat(self, messages: list[ChatMessage], config: LLMConfig) -> str:
         start = time.perf_counter()
-        function_name = _infer_function_name()
+        function_name = config.function_name or _infer_function_name()
         estimated_tokens_in = _message_tokens(messages)
         clear_response_usage()
         try:
@@ -136,7 +136,7 @@ class UsageTrackingProvider(LLMProvider):
 
     async def chat_stream(self, messages: list[ChatMessage], config: LLMConfig) -> AsyncIterator[str]:
         start = time.perf_counter()
-        function_name = _infer_function_name()
+        function_name = config.function_name or _infer_function_name()
         tokens_in = _message_tokens(messages)
         output_parts: list[str] = []
         try:
