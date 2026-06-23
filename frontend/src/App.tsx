@@ -25,18 +25,42 @@ function App() {
   }, [theme, language]);
 
   useEffect(() => {
-    if (localStorage.getItem("research-assistant-onboarding-skipped") === "true") {
-      setOnboardingStatus("onboarded");
-      return;
-    }
-    api.get("settings/onboarding-status")
-      .json<{ onboarded: boolean }>()
-      .then((data) => setOnboardingStatus(data.onboarded ? "onboarded" : "not-onboarded"))
-      .catch(() => setOnboardingStatus("onboarded"));
+    localStorage.removeItem("research-assistant-onboarding-skipped");
+    let cancelled = false;
+    const applyOnboardingStatus = (data: { has_api_key: boolean; onboarded: boolean }) => {
+      if (cancelled) return;
+      const hasProvider = data.has_api_key || data.onboarded;
+      if (hasProvider) {
+        sessionStorage.removeItem("research-assistant-onboarding-skipped-session");
+        setOnboardingStatus("onboarded");
+        return;
+      }
+      const skippedThisSession = sessionStorage.getItem("research-assistant-onboarding-skipped-session") === "true";
+      setOnboardingStatus(skippedThisSession ? "onboarded" : "not-onboarded");
+    };
+
+    const loadOnboardingStatus = (attempt = 1) => {
+      api.get("settings/onboarding-status")
+        .json<{ has_api_key: boolean; onboarded: boolean }>()
+        .then(applyOnboardingStatus)
+        .catch(() => {
+          if (cancelled) return;
+          if (attempt >= 15) {
+            setOnboardingStatus("not-onboarded");
+            return;
+          }
+          window.setTimeout(() => loadOnboardingStatus(attempt + 1), 800);
+        });
+    };
+
+    loadOnboardingStatus();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const completeOnboarding = () => {
-    localStorage.setItem("research-assistant-onboarding-skipped", "true");
+    sessionStorage.setItem("research-assistant-onboarding-skipped-session", "true");
     setOnboardingStatus("onboarded");
   };
 
