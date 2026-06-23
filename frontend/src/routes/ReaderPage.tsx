@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { api, apiUrl, type CitationGraphData, type CitationGraphNode, type Paper } from "../lib/api";
 import { AnnotationSummaryPanel } from "../components/AnnotationSummaryPanel";
 import { PdfViewer } from "../components/PdfViewer";
@@ -23,9 +23,11 @@ import {
   MessageSquare,
   Minimize2,
   Plus,
+  RefreshCw,
   Save,
   ShieldCheck,
   Trash2,
+  Upload,
   XCircle,
 } from "lucide-react";
 import ReactFlow, {
@@ -65,6 +67,8 @@ export default function ReaderPage() {
   const [pdfAnnotations, setPdfAnnotations] = useState<PdfAnnotation[]>([]);
   const [pdfJumpPage, setPdfJumpPage] = useState<number | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const pdfUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [verifyingCitations, setVerifyingCitations] = useState(false);
   const [verificationProgress, setVerificationProgress] = useState("");
   const [citationStatus, setCitationStatus] = useState<CitationStatus | null>(null);
@@ -123,6 +127,8 @@ export default function ReaderPage() {
         setShowStatusMenu(false);
         if (p.pdf_path) {
           setPdfUrl(`${apiUrl(`papers/${id}/pdf`)}?t=${Date.now()}`);
+        } else {
+          setPdfUrl(null);
         }
         setCitationStatus({
           total: p.citation_verified?.length || 0,
@@ -285,22 +291,57 @@ export default function ReaderPage() {
     setPdfAnnotations((current) => current.filter((item) => item.id !== annotationId));
   };
 
-  const handleDownloadPdf = async () => {
+  const refreshPaperPdfState = async () => {
+    if (!id) return;
+    const next = await api.get(`papers/${id}`).json<Paper>();
+    setPaper(next);
+    setPdfFallback(false);
+    setPdfUrl(next.pdf_path ? `${apiUrl(`papers/${id}/pdf`)}?t=${Date.now()}` : null);
+  };
+
+  const handleDownloadPdf = async (force = false) => {
     if (!id) return;
     setDownloadingPdf(true);
     try {
       const result = await api
-        .post(`papers/${id}/download-pdf`)
+        .post(`papers/${id}/download-pdf${force ? "?force=true" : ""}`)
         .json<{ status: string; pdf_path?: string; error?: string }>();
       if (result.status === "downloaded" || result.status === "exists") {
-        const next = await api.get(`papers/${id}`).json<Paper>();
-        setPaper(next);
-        setPdfUrl(`${apiUrl(`papers/${id}/pdf`)}?t=${Date.now()}`);
+        await refreshPaperPdfState();
       } else {
         setPaper((prev) => prev ? { ...prev, pdf_download_error: result.error || "PDF download failed." } : prev);
       }
+    } catch (error) {
+      setPaper((prev) => prev ? { ...prev, pdf_download_error: String(error) } : prev);
     } finally {
       setDownloadingPdf(false);
+    }
+  };
+
+  const handleUploadPdfClick = () => {
+    pdfUploadInputRef.current?.click();
+  };
+
+  const handleUploadPdfChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (!id) return;
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      window.alert("只能上传 .pdf 结尾的文件");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    setUploadingPdf(true);
+    try {
+      await api.post(`papers/${id}/upload-pdf`, { body: formData }).json<{ status: string; pdf_path?: string }>();
+      await refreshPaperPdfState();
+    } catch (error) {
+      window.alert(`上传 PDF 失败：${String(error)}`);
+    } finally {
+      setUploadingPdf(false);
     }
   };
 
@@ -423,22 +464,43 @@ export default function ReaderPage() {
         <div className="flex-1 border border-border rounded-lg overflow-hidden bg-card flex flex-col">
           <div className="px-4 py-2 border-b border-border bg-muted/30 flex items-center justify-between text-sm">
             <span className="text-muted-foreground">PDF 阅读器</span>
-            {paper.pdf_path ? (
-              <span className="inline-flex items-center gap-1 text-xs text-green-500">
-                <Download size={14} /> 后台已缓存
-              </span>
-            ) : paper.pdf_url ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {paper.pdf_path && (
+                <span className="inline-flex items-center gap-1 text-xs text-green-500">
+                  <Download size={14} /> 后台已缓存
+                </span>
+              )}
+              {paper.pdf_url && (
+                <button
+                  onClick={() => handleDownloadPdf(Boolean(paper.pdf_path))}
+                  disabled={downloadingPdf || uploadingPdf}
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
+                  title={paper.pdf_path ? "重新下载并替换当前 PDF" : "后台下载 PDF"}
+                >
+                  {downloadingPdf ? <Loader2 size={14} className="animate-spin" /> : paper.pdf_path ? <RefreshCw size={14} /> : <Download size={14} />}
+                  {paper.pdf_path ? "重新下载" : "后台下载 PDF"}
+                </button>
+              )}
               <button
-                onClick={handleDownloadPdf}
-                disabled={downloadingPdf}
-                className="text-primary hover:underline flex items-center gap-1 disabled:opacity-50"
+                onClick={handleUploadPdfClick}
+                disabled={downloadingPdf || uploadingPdf}
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
+                title="上传本地 PDF 并替换当前 PDF"
               >
-                {downloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                后台下载 PDF
+                {uploadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                上传 PDF
               </button>
-            ) : (
-              <span className="text-xs text-muted-foreground">No PDF URL</span>
-            )}
+              {!paper.pdf_path && !paper.pdf_url && (
+                <span className="text-xs text-muted-foreground">No PDF URL</span>
+              )}
+              <input
+                ref={pdfUploadInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={handleUploadPdfChange}
+              />
+            </div>
           </div>
           <div className="min-h-0 flex-1 bg-muted/20">
             {paper.pdf_path && pdfUrl ? (
@@ -469,7 +531,7 @@ export default function ReaderPage() {
                   </p>
                   {paper.pdf_url && (
                     <button
-                      onClick={handleDownloadPdf}
+                      onClick={() => handleDownloadPdf(false)}
                       disabled={downloadingPdf}
                       className="mt-4 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-foreground hover:bg-muted disabled:opacity-50"
                     >

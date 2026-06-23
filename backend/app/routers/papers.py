@@ -50,7 +50,63 @@ def _ensure_project(db: Session, project_id: str | None) -> str | None:
     return project_id
 
 
+def _resolve_pdf_path(paper: Paper) -> Path | None:
+    """Resolve a stored local PDF path to an existing file.
+
+    Packaged builds can move the app data directory while existing database rows
+    still contain absolute paths from a development or previous install location.
+    If the stored path no longer exists, try the current PDF cache directory with
+    the same filename before treating the PDF as missing.
+    """
+    raw_path = (paper.pdf_path or "").strip()
+    if not raw_path:
+        return None
+
+    candidates = [Path(raw_path)]
+    file_name = Path(raw_path).name
+    if file_name:
+        candidates.append(Path(settings.papers_cache_dir) / file_name)
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        try:
+            key = str(candidate.resolve())
+        except OSError:
+            key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def _sync_resolved_pdf_path(paper: Paper, pdf_path: Path | None, db: Session) -> None:
+    if not pdf_path:
+        return
+    resolved_path = str(pdf_path)
+    if paper.pdf_path == resolved_path:
+        return
+    paper.pdf_path = resolved_path
+    db.add(paper)
+    db.commit()
+    db.refresh(paper)
+
+
+def _remove_replaced_pdf(old_path: Path | None, new_path: Path) -> None:
+    if not old_path:
+        return
+    try:
+        if old_path.resolve() == new_path.resolve():
+            return
+        if old_path.exists() and old_path.is_file():
+            old_path.unlink()
+    except OSError as exc:
+        logger.warning("Failed to remove replaced PDF {}: {}", old_path, exc)
+
+
 def _paper_to_response(paper: Paper, is_new: bool = False) -> dict:
+    resolved_pdf_path = _resolve_pdf_path(paper)
     return {
         "id": paper.id,
         "project_id": paper.project_id,
@@ -67,7 +123,7 @@ def _paper_to_response(paper: Paper, is_new: bool = False) -> dict:
         "keywords": paper.keywords or [],
         "url": paper.url or "",
         "pdf_url": paper.pdf_url or "",
-        "pdf_path": paper.pdf_path or "",
+        "pdf_path": str(resolved_pdf_path) if resolved_pdf_path else "",
         "pdf_download_error": paper.pdf_download_error or "",
         "extracted_data": paper.extracted_data or {},
         "citation_verified": paper.citation_verified or [],
@@ -569,8 +625,10 @@ async def parse_paper(paper_id: str, db: Session = Depends(get_db)):
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    if not paper.pdf_path or not Path(paper.pdf_path).exists():
+    pdf_path = _resolve_pdf_path(paper)
+    if not pdf_path:
         raise HTTPException(status_code=400, detail="PDF file not found")
+    _sync_resolved_pdf_path(paper, pdf_path, db)
 
     return EventSourceResponse(_parse_paper_stream(paper_id))
 
@@ -579,12 +637,13 @@ async def parse_paper(paper_id: str, db: Session = Depends(get_db)):
 async def get_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
     """返回论文 PDF 文件流。"""
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
-    if not paper or not paper.pdf_path:
+    if not paper:
         raise HTTPException(status_code=404, detail="PDF file not found")
 
-    pdf_path = Path(paper.pdf_path)
-    if not pdf_path.exists() or not pdf_path.is_file():
+    pdf_path = _resolve_pdf_path(paper)
+    if not pdf_path:
         raise HTTPException(status_code=404, detail="PDF file not found")
+    _sync_resolved_pdf_path(paper, pdf_path, db)
 
     return FileResponse(
         pdf_path,
@@ -684,11 +743,12 @@ def delete_pdf_annotation(paper_id: str, annotation_id: str, db: Session = Depen
 @router.get("/papers/{paper_id}/pdf-text")
 def get_paper_pdf_text(paper_id: str, db: Session = Depends(get_db)):
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
-    if not paper or not paper.pdf_path:
+    if not paper:
         raise HTTPException(status_code=404, detail="PDF file not found")
-    pdf_path = Path(paper.pdf_path)
-    if not pdf_path.exists() or not pdf_path.is_file():
+    pdf_path = _resolve_pdf_path(paper)
+    if not pdf_path:
         raise HTTPException(status_code=404, detail="PDF file not found")
+    _sync_resolved_pdf_path(paper, pdf_path, db)
     doc = fitz.open(str(pdf_path))
     try:
         pages = [{"page": index + 1, "text": page.get_text()} for index, page in enumerate(doc)]
@@ -697,14 +757,16 @@ def get_paper_pdf_text(paper_id: str, db: Session = Depends(get_db)):
         doc.close()
 
 @router.post("/papers/{paper_id}/download-pdf")
-async def download_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
-    """从外部 URL 下载 PDF 到本地缓存。"""
+async def download_paper_pdf(paper_id: str, force: bool = False, db: Session = Depends(get_db)):
+    """Download or re-download a paper PDF into the local cache."""
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    if paper.pdf_path and Path(paper.pdf_path).exists():
-        return {"status": "exists", "pdf_path": paper.pdf_path}
+    existing_pdf_path = _resolve_pdf_path(paper)
+    if existing_pdf_path and not force:
+        _sync_resolved_pdf_path(paper, existing_pdf_path, db)
+        return {"status": "exists", "pdf_path": str(existing_pdf_path)}
 
     if not paper.pdf_url:
         raise HTTPException(status_code=400, detail="No PDF URL available for this paper")
@@ -715,10 +777,45 @@ async def download_paper_pdf(paper_id: str, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "failed", "pdf_path": "", "error": download_result.error}
 
-    paper.pdf_path = download_result.local_path
+    new_pdf_path = Path(download_result.local_path)
+    _remove_replaced_pdf(existing_pdf_path, new_pdf_path)
+    paper.pdf_path = str(new_pdf_path)
     paper.pdf_download_error = ""
     db.commit()
-    return {"status": "downloaded", "pdf_path": download_result.local_path}
+    return {"status": "downloaded", "pdf_path": str(new_pdf_path)}
+
+
+@router.post("/papers/{paper_id}/upload-pdf")
+async def upload_paper_pdf_file(
+    paper_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Upload a replacement local PDF for an existing paper."""
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    if not file.filename or Path(file.filename).suffix.lower() != ".pdf":
+        raise HTTPException(status_code=400, detail="Only .pdf files can be uploaded")
+
+    cache_dir = Path(settings.papers_cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    saved_path = cache_dir / f"{uuid.uuid4()}.pdf"
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded PDF is empty")
+
+    old_pdf_path = _resolve_pdf_path(paper)
+    with open(saved_path, "wb") as f:
+        f.write(content)
+
+    _remove_replaced_pdf(old_pdf_path, saved_path)
+    paper.pdf_path = str(saved_path)
+    paper.pdf_download_error = ""
+    db.commit()
+    db.refresh(paper)
+    return {"status": "uploaded", "pdf_path": str(saved_path)}
 
 
 @router.post("/papers/{paper_id}/relations")

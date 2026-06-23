@@ -6,8 +6,11 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use tauri::Emitter;
 use tauri::Manager;
+use tauri::WindowEvent;
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
@@ -18,6 +21,44 @@ enum BackendProcess {
 }
 
 struct BackendChild(Mutex<Option<BackendProcess>>);
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[cfg(windows)]
+fn kill_process_tree(pid: u32) {
+    let pid_arg = pid.to_string();
+    let _ = Command::new("taskkill")
+        .args(["/PID", pid_arg.as_str(), "/T", "/F"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+#[cfg(not(windows))]
+fn kill_process_tree(_pid: u32) {}
+
+fn kill_backend(app_handle: &tauri::AppHandle) {
+    let state = app_handle.state::<BackendChild>();
+    let Some(process) = state.0.lock().ok().and_then(|mut guard| guard.take()) else {
+        return;
+    };
+
+    match process {
+        BackendProcess::Sidecar(child) => {
+            let pid = child.pid();
+            kill_process_tree(pid);
+            let _ = child.kill();
+        }
+        BackendProcess::Uvicorn(mut child) => {
+            let pid = child.id();
+            kill_process_tree(pid);
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
 
 /// Try sidecar (production); fall back to uvicorn (dev).
 fn spawn_backend(app: &tauri::AppHandle) -> Result<BackendProcess, String> {
@@ -81,7 +122,7 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
 
-            // ── Launch backend exactly once in a background thread ──
+            // Launch backend exactly once in a background thread.
             std::thread::spawn(move || {
                 let process = match spawn_backend(&handle) {
                     Ok(p) => p,
@@ -92,13 +133,13 @@ fn main() {
                     }
                 };
 
-                // Store into managed state so we can kill it on exit
+                // Store into managed state so we can kill it on exit.
                 let state = handle.state::<BackendChild>();
                 if let Ok(mut guard) = state.0.lock() {
                     *guard = Some(process);
                 }
 
-                // Wait for readiness
+                // Wait for readiness.
                 if wait_for_backend() {
                     println!("[backend] ready on http://127.0.0.1:8787");
                     let _ = handle.emit("backend-ready", ());
@@ -108,35 +149,22 @@ fn main() {
                         "backend-error",
                         "Timed out waiting for backend on port 8787",
                     );
-                    // Kill the unresponsive process via the mutex
-                    let state = handle.state::<BackendChild>();
-                    if let Ok(mut guard) = state.0.lock() {
-                        if let Some(p) = guard.take() {
-                            match p {
-                                BackendProcess::Sidecar(c) => { c.kill().ok(); },
-                                BackendProcess::Uvicorn(mut c) => { c.kill().ok(); },
-                            }
-                        }
-                    };
+                    kill_backend(&handle);
                 }
             });
 
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed) {
+                kill_backend(window.app_handle());
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error building tauri application")
         .run(|app_handle, event| {
-            // ── Kill backend on exit ──
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                let state = app_handle.state::<BackendChild>();
-                if let Ok(mut guard) = state.0.lock() {
-                    if let Some(p) = guard.take() {
-                        match p {
-                            BackendProcess::Sidecar(c) => { c.kill().ok(); },
-                            BackendProcess::Uvicorn(mut c) => { c.kill().ok(); },
-                        }
-                    }
-                };
+            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+                kill_backend(app_handle);
             }
         });
 }
