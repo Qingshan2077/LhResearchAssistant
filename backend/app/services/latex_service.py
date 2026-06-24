@@ -1,12 +1,20 @@
 """LaTeX template and project helpers."""
 
 import shutil
+import sys
 import uuid
 from pathlib import Path
 
 from app.config import settings
 
-TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "templates"
+def _template_root() -> Path:
+    bundled_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2])) / "templates"
+    if bundled_root.exists():
+        return bundled_root
+    return Path(__file__).resolve().parents[2] / "templates"
+
+
+TEMPLATE_ROOT = _template_root()
 
 DISPLAY_NAMES = {
     "neurips_2024": "NeurIPS 2024",

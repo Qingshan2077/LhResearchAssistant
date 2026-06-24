@@ -16,35 +16,38 @@ SOURCES: dict[str, type] = {
 }
 
 
+def _safe_lower(value) -> str:
+    return str(value or "").strip().lower()
+
+
 def _deduplicate(results: list[PaperSourceResult]) -> list[PaperSourceResult]:
-    """基于 DOI / arxiv_id 去重，保留信息最全的记录"""
-    seen_ids: set[tuple[str, str]] = set()  # (id_type, id_value)
+    """Deduplicate by DOI/arXiv/title without trusting upstream field types."""
+    seen_ids: set[tuple[str, str]] = set()
     seen_titles: set[str] = set()
     deduped: list[PaperSourceResult] = []
 
-    for r in results:
-        # 通过 DOI 或 arxiv_id 去重
+    for result in results:
+        doi = _safe_lower(getattr(result, "doi", ""))
+        arxiv_id = _safe_lower(getattr(result, "arxiv_id", ""))
+        title_key = _safe_lower(getattr(result, "title", "")).rstrip(".")
+
         dedup_key = None
-        if r.doi:
-            dedup_key = ("doi", r.doi.lower())
-        elif r.arxiv_id:
-            dedup_key = ("arxiv", r.arxiv_id.lower())
+        if doi:
+            dedup_key = ("doi", doi)
+        elif arxiv_id:
+            dedup_key = ("arxiv", arxiv_id)
 
         if dedup_key and dedup_key in seen_ids:
+            continue
+        if title_key and title_key in seen_titles:
             continue
 
         if dedup_key:
             seen_ids.add(dedup_key)
+        if title_key:
+            seen_titles.add(title_key)
 
-        # 标题去重（兜底）
-        title_key = r.title.lower().strip().rstrip(".")
-        if title_key in seen_titles:
-            # 如果标题重复但信息更丰富（有摘要而另一个没有），保留这个
-            # 简单策略：保留后者（通常 info 更全）
-            continue
-        seen_titles.add(title_key)
-
-        deduped.append(r)
+        deduped.append(result)
 
     return deduped
 
@@ -75,9 +78,13 @@ async def search_papers(
                 ),
                 timeout=45,
             )
-            for result in results:
+            if not isinstance(results, list):
+                logger.warning("Search source {} returned non-list result: {}", name, type(results).__name__)
+                return name, [], "Source returned an invalid result."
+            safe_results = [result for result in results if result is not None]
+            for result in safe_results:
                 _fill_pdf_url(result)
-            return name, results, None
+            return name, safe_results, None
         except asyncio.TimeoutError:
             logger.warning("Search source {} timed out", name)
             return name, [], "Source timed out after 45 seconds."
@@ -115,30 +122,53 @@ async def search_papers(
 
 def _fill_pdf_url(result: PaperSourceResult) -> None:
     """Fill obvious PDF URLs from arXiv ids when upstream sources omit them."""
-    if not result.pdf_url and result.arxiv_id:
-        arxiv_id = result.arxiv_id.removesuffix(".pdf")
+    pdf_url = str(getattr(result, "pdf_url", "") or "").strip()
+    arxiv_id = str(getattr(result, "arxiv_id", "") or "").strip().removesuffix(".pdf")
+    if not pdf_url and arxiv_id:
         result.pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
 
 
+def _as_text(value) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _as_text_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _as_int(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def source_to_paper_dict(source: PaperSourceResult) -> dict:
-    """将 PaperSourceResult 转换为 API 响应字典"""
+    """Convert a PaperSourceResult into a response-safe API dictionary."""
     import uuid
     return {
         "id": str(uuid.uuid4()),
         "project_id": None,
-        "title": source.title,
-        "authors": source.authors,
-        "abstract": source.abstract,
-        "year": source.year,
-        "venue": source.venue,
-        "paper_type": source.paper_type,
-        "doi": source.doi,
-        "arxiv_id": source.arxiv_id,
-        "source": source.source,
-        "citation_count": source.citation_count,
-        "keywords": source.keywords,
-        "url": source.url,
-        "pdf_url": source.pdf_url,
+        "title": _as_text(source.title) or "Untitled paper",
+        "authors": _as_text_list(source.authors),
+        "abstract": _as_text(source.abstract),
+        "year": source.year if isinstance(source.year, int) else None,
+        "venue": _as_text(source.venue),
+        "paper_type": _as_text(source.paper_type),
+        "doi": _as_text(source.doi),
+        "arxiv_id": _as_text(source.arxiv_id),
+        "source": _as_text(source.source),
+        "citation_count": _as_int(source.citation_count),
+        "keywords": _as_text_list(source.keywords),
+        "url": _as_text(source.url),
+        "pdf_url": _as_text(source.pdf_url),
         "pdf_path": "",
         "pdf_download_error": "",
         "extracted_data": {},

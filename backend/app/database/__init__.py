@@ -9,7 +9,7 @@ from app.config import settings
 
 engine = create_engine(
     f"sqlite:///{Path(settings.db_path).absolute()}",
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": 30},
     echo=False,
 )
 
@@ -22,6 +22,7 @@ def set_sqlite_pragmas(dbapi_connection, connection_record) -> None:
     try:
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
         cursor.execute("PRAGMA secure_delete=ON")
     finally:
         cursor.close()

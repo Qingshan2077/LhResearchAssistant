@@ -5,6 +5,7 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
@@ -38,6 +39,17 @@ def _can_use_llm(config: LLMConfig | None) -> bool:
         return False
     base_url = (config.base_url or "").lower()
     return bool(config.api_key) or "localhost" in base_url or "127.0.0.1" in base_url
+
+
+def _safe_lower(value) -> str:
+    return str(value or "").strip().lower()
+
+
+def _sort_number(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _keyword_matches(title: str, keyword: str) -> bool:
@@ -190,27 +202,35 @@ async def search(req: SearchRequest, db: Session = Depends(get_db)):
     existing_arxiv = set()
     existing_doi = set()
     if req.project_id:
-        papers_in_db = db.query(Paper).filter(Paper.project_id == req.project_id).all()
-        for paper in papers_in_db:
-            if paper.arxiv_id:
-                existing_arxiv.add(paper.arxiv_id.lower())
-            if paper.doi:
-                existing_doi.add(paper.doi.lower())
+        try:
+            papers_in_db = db.query(Paper).filter(Paper.project_id == req.project_id).all()
+            for paper in papers_in_db:
+                if paper.arxiv_id:
+                    existing_arxiv.add(paper.arxiv_id.lower())
+                if paper.doi:
+                    existing_doi.add(paper.doi.lower())
+        except OperationalError as exc:
+            if "no such table" not in str(exc).lower():
+                raise
+            logger.warning("Search skipped existing-paper lookup because local schema is incomplete: {}", exc)
+            db.rollback()
 
     papers = []
     for r in results:
         p = source_to_paper_dict(r)
+        arxiv_id = _safe_lower(p.get("arxiv_id"))
+        doi = _safe_lower(p.get("doi"))
         p["is_new"] = not (
-            (r.arxiv_id and r.arxiv_id.lower() in existing_arxiv)
-            or (r.doi and r.doi.lower() in existing_doi)
+            (arxiv_id and arxiv_id in existing_arxiv)
+            or (doi and doi in existing_doi)
         )
         papers.append(p)
 
     # 排序
     if req.sort_by == "citations":
-        papers.sort(key=lambda p: p.get("citation_count", 0) or 0, reverse=True)
+        papers.sort(key=lambda p: _sort_number(p.get("citation_count")), reverse=True)
     elif req.sort_by == "date":
-        papers.sort(key=lambda p: p.get("year", 0) or 0, reverse=True)
+        papers.sort(key=lambda p: _sort_number(p.get("year")), reverse=True)
     # "relevance" — 保持原序（API 已按相关性排序）
 
     return SearchResponse(

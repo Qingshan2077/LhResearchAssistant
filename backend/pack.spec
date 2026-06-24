@@ -35,6 +35,10 @@ _pd_mods, _pd_datas = _pkg("pydantic")
 # Others known to have dynamic imports
 _uv_mods, _uv_datas = _pkg("uvicorn")
 
+# Alembic migrations use dynamic imports and Mako templates.
+_alembic_mods, _alembic_datas = _pkg("alembic")
+_mako_mods, _mako_datas = _pkg("mako")
+
 # ── Application analysis ────────────────────────────────────────────────────
 block_cipher = None
 _spec_root = Path(globals().get("SPECPATH", os.getcwd())).resolve()
@@ -53,12 +57,15 @@ a = Analysis(
             (str(_chromadb_root / 'migrations'), 'chromadb/migrations'),
             (str(_spec_root / 'alembic.ini'), '.'),
             (str(_spec_root / 'alembic'), 'alembic'),
+            (str(_spec_root / 'templates'), 'templates'),
         ]
         + _sa_datas
         + _cdb_datas
         + _fa_datas
         + _pd_datas
         + _uv_datas
+        + _alembic_datas
+        + _mako_datas
     ),
     hiddenimports=(
         # ── App modules ──
@@ -141,6 +148,8 @@ a = Analysis(
         + _fa_mods
         + _pd_mods
         + _uv_mods
+        + _alembic_mods
+        + _mako_mods
     ),
     excludes=[
         'tkinter',

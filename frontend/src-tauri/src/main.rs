@@ -121,6 +121,20 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<BackendProcess, String> {
     Ok(BackendProcess::Uvicorn(child))
 }
 
+fn backend_is_ready_once() -> bool {
+    if let Ok(mut s) = TcpStream::connect_timeout(
+        &"127.0.0.1:8787".parse().unwrap(),
+        Duration::from_millis(500),
+    ) {
+        let _ = s.write_all(b"GET /api/v1/health HTTP/1.0\r\nHost: localhost\r\n\r\n");
+        let mut buf = [0u8; 256];
+        if s.read(&mut buf).is_ok() {
+            return String::from_utf8_lossy(&buf).contains("200 OK");
+        }
+    }
+    false
+}
+
 /// Block until port 8787 responds to a health-check GET.
 fn wait_for_backend() -> bool {
     for i in 0..180 {
@@ -152,8 +166,20 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
 
+            // Diagnostic build: open WebView DevTools automatically so packaged-only
+            // fetch/CORS/resource failures can be inspected from Console/Network.
+            if let Some(window) = app.get_webview_window("main") {
+                window.open_devtools();
+            }
+
             // Launch backend exactly once in a background thread.
             std::thread::spawn(move || {
+                if backend_is_ready_once() {
+                    println!("[backend] existing service detected on http://127.0.0.1:8787");
+                    let _ = handle.emit("backend-ready", ());
+                    return;
+                }
+
                 let process = match spawn_backend(&handle) {
                     Ok(p) => p,
                     Err(e) => {

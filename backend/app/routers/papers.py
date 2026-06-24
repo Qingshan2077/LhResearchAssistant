@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
@@ -37,7 +38,7 @@ def _ensure_project(db: Session, project_id: str | None) -> str | None:
     if not project_id:
         return None
 
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.get(Project, project_id)
     if project:
         return project_id
 
@@ -46,9 +47,14 @@ def _ensure_project(db: Session, project_id: str | None) -> str | None:
         name="Default" if project_id == "default" else project_id,
         description="Auto-created project for imported papers.",
     ))
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        if db.get(Project, project_id):
+            return project_id
+        raise
     return project_id
-
 
 def _resolve_pdf_path(paper: Paper) -> Path | None:
     """Resolve a stored local PDF path to an existing file.
@@ -478,7 +484,7 @@ def create_paper(req: PaperCreate, db: Session = Depends(get_db)):
 
 @router.post("/papers/batch")
 async def batch_create_papers(papers: list[PaperCreate], db: Session = Depends(get_db)):
-    """批量导入论文（从检索结果导入时使用），自动下载 PDF。"""
+    """Batch import papers while keeping SQLite write transactions short."""
     created = []
     imported = 0
     skipped = 0
@@ -486,7 +492,6 @@ async def batch_create_papers(papers: list[PaperCreate], db: Session = Depends(g
     for req in papers:
         project_id = _ensure_project(db, req.project_id)
 
-        # 检查是否已存在（通过 arxiv_id 或 doi）
         existing = None
         if req.arxiv_id:
             existing = (
@@ -522,25 +527,38 @@ async def batch_create_papers(papers: list[PaperCreate], db: Session = Depends(g
             pdf_url=req.pdf_url,
         )
         db.add(paper)
-        db.flush()
+        try:
+            db.commit()
+        except OperationalError as exc:
+            db.rollback()
+            if "database is locked" in str(exc).lower():
+                logger.warning("Batch import skipped one paper because SQLite is locked: {}", exc)
+                skipped += 1
+                continue
+            raise
+        db.refresh(paper)
 
-        # 自动下载 PDF
         if req.pdf_url and not paper.pdf_path:
             download_result = await download_pdf(req.pdf_url, req.title)
             if download_result.success and download_result.local_path:
                 paper.pdf_path = download_result.local_path
                 paper.pdf_download_error = ""
-                db.flush()
             else:
                 paper.pdf_download_error = download_result.error
-                db.flush()
+            try:
+                db.commit()
+                db.refresh(paper)
+            except OperationalError as exc:
+                db.rollback()
+                if "database is locked" in str(exc).lower():
+                    logger.warning("Could not persist PDF download status because SQLite is locked: {}", exc)
+                else:
+                    raise
 
         created.append(_paper_to_response(paper))
         imported += 1
 
-    db.commit()
     return {"imported": imported, "skipped": skipped, "papers": created}
-
 
 @router.patch("/papers/{paper_id}")
 def update_paper(paper_id: str, req: PaperUpdate, db: Session = Depends(get_db)):

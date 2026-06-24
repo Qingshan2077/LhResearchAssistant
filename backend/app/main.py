@@ -7,15 +7,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
-from alembic import command as alembic_command
-from alembic.config import Config as AlembicConfig
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from sqlalchemy import inspect
 
 from app.config import settings
-from app.database import SessionLocal, engine
+from app.database import Base, SessionLocal, engine
 from app.database.sqlite import AppSetting
 from app.logs import setup_logging
 from app.services.crypto import decrypt_api_key
@@ -36,6 +35,9 @@ def _run_startup_migrations() -> None:
         logger.warning("Alembic config not found at {}; skipping startup migrations", alembic_ini)
         return
     try:
+        from alembic import command as alembic_command
+        from alembic.config import Config as AlembicConfig
+
         config = AlembicConfig(str(alembic_ini))
         config.set_main_option("script_location", str(backend_root / "alembic"))
         config.set_main_option("sqlalchemy.url", f"sqlite:///{settings.db_path}")
@@ -45,11 +47,32 @@ def _run_startup_migrations() -> None:
         logger.exception("Alembic migration failed: {}", exc)
 
 
+def _ensure_required_tables() -> None:
+    """Repair half-initialized local SQLite databases created by older packaged builds."""
+    required_tables = {"projects", "papers", "llm_providers", "app_settings"}
+    try:
+        existing_tables = set(inspect(engine).get_table_names())
+    except Exception as exc:
+        logger.exception("Could not inspect database schema: {}", exc)
+        return
+
+    missing_tables = required_tables - existing_tables
+    if not missing_tables:
+        return
+
+    logger.warning("Database schema is missing {}; creating missing ORM tables", sorted(missing_tables))
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        logger.exception("Could not create missing database tables: {}", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize process-wide services."""
     setup_logging()
     _run_startup_migrations()
+    _ensure_required_tables()
     if inspect(engine).has_table(AppSetting.__tablename__):
         db = SessionLocal()
         try:
@@ -88,6 +111,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Return JSON errors with CORS headers so packaged WebView can expose real failures."""
+    logger.exception("Unhandled request error on {} {}: {}", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "error": str(exc)[:500]},
+        headers={
+            "Access-Control-Allow-Origin": request.headers.get("origin") or "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
+
 
 from app.routers import (  # noqa: E402
     health,
