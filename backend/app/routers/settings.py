@@ -234,16 +234,28 @@ def _set_only_active(db: Session, provider_id: str) -> None:
     )
 
 
+def _has_decryptable_api_key(provider: LLMProviderModel) -> bool:
+    """Best-effort check used by first-run status; stale local secrets must not break startup."""
+    try:
+        return bool(decrypt_api_key(provider.api_key or "").strip())
+    except Exception as exc:
+        logger.warning("Ignoring unreadable API key for provider {}: {}", provider.id, exc)
+        return False
 
 
 @router.get("/settings/onboarding-status")
 def get_onboarding_status(db: Session = Depends(get_db)):
     """Return whether first-run LLM provider setup has been completed."""
     providers = db.query(LLMProviderModel).all()
-    has_api_key = any(bool(decrypt_api_key(provider.api_key or "").strip()) for provider in providers)
+    has_api_key = any(_has_decryptable_api_key(provider) for provider in providers)
+    try:
+        has_papers = db.query(Paper).count() > 0
+    except Exception as exc:
+        logger.warning("Could not inspect paper count for onboarding status: {}", exc)
+        has_papers = False
     return {
         "has_api_key": has_api_key,
-        "has_papers": db.query(Paper).count() > 0,
+        "has_papers": has_papers,
         "onboarded": has_api_key,
     }
 

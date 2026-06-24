@@ -28,9 +28,6 @@ export function websocketUrl(path: string): string {
 export const api = ky.create({
   prefixUrl: API_BASE,
   timeout: 60000,
-  headers: {
-    "Content-Type": "application/json",
-  },
 });
 
 export const apiForm = ky.create({

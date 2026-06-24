@@ -11,7 +11,7 @@ use std::os::windows::process::CommandExt;
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::WindowEvent;
-use tauri_plugin_shell::process::CommandChild;
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 /// Unified type: sidecar (production) or uvicorn (dev).
@@ -70,8 +70,38 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<BackendProcess, String> {
             .spawn()
         {
             // spawn() returns (Receiver<CommandEvent>, CommandChild)
-            Ok((_rx, child)) => {
+            Ok((mut rx, child)) => {
                 println!("[backend] sidecar started OK");
+                let handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    while let Some(event) = rx.recv().await {
+                        match event {
+                            CommandEvent::Stdout(line) => {
+                                let text = String::from_utf8_lossy(&line);
+                                if !text.trim().is_empty() {
+                                    println!("[backend stdout] {}", text.trim_end());
+                                }
+                            }
+                            CommandEvent::Stderr(line) => {
+                                let text = String::from_utf8_lossy(&line);
+                                if !text.trim().is_empty() {
+                                    eprintln!("[backend stderr] {}", text.trim_end());
+                                }
+                            }
+                            CommandEvent::Error(error) => {
+                                eprintln!("[backend] sidecar event error: {error}");
+                                let _ = handle.emit("backend-error", error);
+                            }
+                            CommandEvent::Terminated(payload) => {
+                                let message = format!("Backend process exited with code {:?}", payload.code);
+                                eprintln!("[backend] {message}");
+                                let _ = handle.emit("backend-error", message);
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                });
                 return Ok(BackendProcess::Sidecar(child));
             }
             Err(e) => println!("[backend] sidecar spawn failed: {e}"),
@@ -93,7 +123,7 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<BackendProcess, String> {
 
 /// Block until port 8787 responds to a health-check GET.
 fn wait_for_backend() -> bool {
-    for i in 0..30 {
+    for i in 0..180 {
         if let Ok(mut s) = TcpStream::connect_timeout(
             &"127.0.0.1:8787".parse().unwrap(),
             Duration::from_secs(2),
@@ -144,12 +174,11 @@ fn main() {
                     println!("[backend] ready on http://127.0.0.1:8787");
                     let _ = handle.emit("backend-ready", ());
                 } else {
-                    eprintln!("[backend] health check timed out");
+                    eprintln!("[backend] health check timed out; backend process will be kept alive");
                     let _ = handle.emit(
                         "backend-error",
-                        "Timed out waiting for backend on port 8787",
+                        "Backend is still starting or did not answer health checks on port 8787",
                     );
-                    kill_backend(&handle);
                 }
             });
 

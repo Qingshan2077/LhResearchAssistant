@@ -1,6 +1,8 @@
 """Research Assistant Backend — FastAPI entry point."""
 
 import argparse
+import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -78,8 +80,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins.split(","),
-    allow_credentials=True,
+    # This is a localhost-only desktop backend. Tauri/WebView origins vary
+    # across platforms and build modes, so allow all origins and avoid
+    # credentials to make browser preflight requests deterministic.
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -37,9 +37,13 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = (
         "http://localhost:1420,"
+        "http://127.0.0.1:1420,"
+        "http://localhost:8787,"
+        "http://127.0.0.1:8787,"
         "http://tauri.localhost,"
         "https://tauri.localhost,"
-        "tauri://localhost"
+        "tauri://localhost,"
+        "null"
     )
 
     # 默认 LLM（用户未配置时）
